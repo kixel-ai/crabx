@@ -110,7 +110,7 @@ mod tests {
 
 	#[test]
 	fn pipeline_readme_shows_the_written_workflow() {
-		let readme = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../.github/crabx/README.md")).unwrap();
+		let readme = fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/pipeline/README.md")).unwrap();
 		let block = format!("```yaml\n{}```", workflow("main"));
 		assert!(readme.contains(&block), "README's caller differs from crabx init's");
 	}

@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 description = "Run a Rust CLI from its author's release, without compiling"
-repository = "https://github.com/kixel-ai/rust2"
+repository = "https://github.com/kixel-ai/crabx"
 license = "GPL-3.0-only"
-# The npm packages and installers ship from the release, not inside the crate.
-exclude = ["install.ps1", "install.sh", "npm", "release.py", "test_release.py"]
+# The npm packages, installers, pipeline, and quests ship from the repository, not inside the crate.
+include = ["/LICENSE", "/README.md", "/src", "/tests", "/vendor"]
 
 [workspace]
 

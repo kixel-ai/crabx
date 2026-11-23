@@ -22,7 +22,7 @@ spec.loader.exec_module(r)
 LAUNCHER = HERE / "npm/crabx.js"
 # Node and Bun exec the binary; "old node" lacks process.execve and runs it as a child.
 RUNTIMES = ("node", "bun", "old node")
-WORKFLOW = HERE.parent / ".github/workflows/release.yml"
+WORKFLOW = HERE / ".github/workflows/release.yml"
 
 
 def index(*entries):
@@ -79,7 +79,7 @@ class Plan(unittest.TestCase):
         self.assertEqual(result["publish"], "true")
         builds = json.loads(result["builds"])["include"]
         self.assertEqual({b["target"] for b in builds}, set(r.NPM_TARGETS))
-        self.assertTrue(all(b["sha"] == "c" * 40 and b["path"] == "crabx" and b["os"] for b in builds))
+        self.assertTrue(all(b["sha"] == "c" * 40 and b["path"] == "." and b["os"] for b in builds))
 
     def test_crate_refuses_bare_tags_on_new_or_published_versions(self):
         # The pipeline would release under them, where npm and the installers never look.
@@ -286,7 +286,7 @@ for arg; do
 done
 case $url in
 https://index.crates.io/cr/ab/crabx) cat {self.served}/index ;;
-https://github.com/kixel-ai/rust2/releases/download/crabx-v*/*) cp "{self.served}/${{url##*/}}" "$out" 2>/dev/null || exit 22 ;;
+https://github.com/kixel-ai/crabx/releases/download/crabx-v*/*) cp "{self.served}/${{url##*/}}" "$out" 2>/dev/null || exit 22 ;;
 *) exit 22 ;;
 esac""")
 
@@ -375,7 +375,7 @@ class Workflow(unittest.TestCase):
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.npm-plan.outputs.version }}
-        run: python3 crabx/release.py publish "$VERSION"
+        run: python3 release.py publish "$VERSION"
 """)
 
     def test_npm_jobs_run_after_a_skipped_crate(self):
@@ -399,12 +399,12 @@ class Workflow(unittest.TestCase):
 
     def test_installer_urls_are_deployed(self):
         # Every crabx.kixel.ai URL users are told to fetch names a file the Pages job copies.
-        site = (HERE.parent / ".github/workflows/installers.yml").read_text()
+        site = (HERE / ".github/workflows/installers.yml").read_text()
         texts = [(HERE / f).read_text() for f in ("README.md", "install.sh", "install.ps1")]
         urls = {u for t in texts for u in re.findall(r"https://crabx\.kixel\.ai/(\S*?)(?=[\s\"|])", t)}
         self.assertEqual(urls, {"install.sh", "install.ps1"})
         for name in urls:
-            self.assertIn(f"crabx/{name}", site)
+            self.assertRegex(site, rf"\n +cp [^\n]*\b{re.escape(name)}\b")
         self.assertEqual("".join(texts).count("raw.githubusercontent"), 0)
 
 

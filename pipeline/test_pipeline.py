@@ -38,7 +38,7 @@ class Pipeline(unittest.TestCase):
         "RUNNER_ENVIRONMENT": "github-hosted",
         "GITHUB_RUN_ID": "3",
         "GITHUB_RUN_ATTEMPT": "1",
-        "PIPELINE_WORKFLOW": "kixel-ai/rust2/.github/workflows/crabx.yml@refs/tags/pipeline-v1.0.0",
+        "PIPELINE_WORKFLOW": "kixel-ai/crabx/.github/workflows/crabx.yml@refs/tags/pipeline-v1.0.0",
         "PIPELINE_SHA": "b" * 40,
         "GITHUB_SHA": "c" * 40,
     }
@@ -55,7 +55,7 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(definition["resolvedDependencies"], [
             {"uri": "git+https://github.com/example/demo@refs/heads/main", "digest": {"gitCommit": "c" * 40}},
             {"uri": "git+https://github.com/example/demo", "digest": {"gitCommit": ITEM["sha"]}},
-            {"uri": "https://github.com/kixel-ai/rust2/.github/workflows/crabx.yml", "digest": {"gitCommit": "b" * 40}},
+            {"uri": "https://github.com/kixel-ai/crabx/.github/workflows/crabx.yml", "digest": {"gitCommit": "b" * 40}},
         ])
 
     def test_provenance_refuses_a_workflow_from_another_repository(self):

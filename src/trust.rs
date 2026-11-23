@@ -306,6 +306,9 @@ fn repository(value: &str) -> Result<Option<String>> {
 	Ok(Some(format!("{owner}/{repo}").to_ascii_lowercase()))
 }
 
+/// The reusable workflow whose builds crabx trusts for any repository that calls it.
+const PIPELINE_SIGNER: &str = "https://github.com/kixel-ai/crabx/.github/workflows/crabx.yml@";
+
 impl Artifact<'_> {
 	fn authorize(&self, claims: &sigstore_verify::crypto::FulcioCiClaims, identity: Option<&str>) -> Result<()> {
 		let repo = self.repo;
@@ -326,7 +329,7 @@ impl Artifact<'_> {
 			.context("attestation lacks a workflow identity")?;
 		let signer = signer.to_ascii_lowercase();
 		let own = signer.starts_with(&format!("{expected}/.github/workflows/"));
-		let pipeline = signer.starts_with("https://github.com/kixel-ai/rust2/.github/workflows/");
+		let pipeline = signer.starts_with(PIPELINE_SIGNER);
 		ensure!(
 			own || pipeline,
 			"attestation signer is neither the author's workflow nor the crabx pipeline"
@@ -528,6 +531,44 @@ mod tests {
 			.authorize(&claims, None)
 			.is_err()
 		);
+	}
+
+	#[test]
+	fn only_the_crabx_pipeline_signs_for_other_repositories() {
+		let mut claims = sigstore_verify::crypto::FulcioCiClaims::default();
+		claims.source_repository_uri = Some("https://github.com/a/b".into());
+		claims.source_repository_ref = Some("refs/tags/v1.2.3".into());
+		let asset = reqwest::Url::parse("https://github.com/a/b/releases/download/v1.2.3/asset.tgz").unwrap();
+		let version = Version::new(1, 2, 3);
+		let artifact = Artifact {
+			digest: "",
+			repo: "a/b",
+			version: &version,
+			asset: &asset,
+		};
+		let mut signs = |signer: &str| {
+			claims.build_signer_uri = Some(signer.into());
+			artifact.authorize(&claims, None).is_ok()
+		};
+		assert!(signs(
+			"https://github.com/kixel-ai/crabx/.github/workflows/crabx.yml@0123456789abcdef0123456789abcdef01234567"
+		));
+		assert!(signs(
+			"https://github.com/Kixel-AI/Crabx/.github/workflows/crabx.yml@refs/tags/pipeline-v1.0.0"
+		));
+		// The pipeline's old home, the repository's other workflows, and a lookalike name.
+		assert!(!signs(
+			"https://github.com/kixel-ai/rust2/.github/workflows/crabx.yml@refs/tags/pipeline-v1.0.0"
+		));
+		assert!(!signs(
+			"https://github.com/kixel-ai/crabx/.github/workflows/release.yml@refs/heads/main"
+		));
+		assert!(!signs(
+			"https://github.com/kixel-ai/crabx/.github/workflows/crabx.yml.evil@refs/heads/main"
+		));
+		assert!(!signs(
+			"https://github.com/kixel-ai/crabx-evil/.github/workflows/crabx.yml@refs/heads/main"
+		));
 	}
 
 	#[test]

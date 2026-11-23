@@ -6,8 +6,8 @@ on:
   push:
     branches: [main]
     paths:
-      - crabx/install.sh
-      - crabx/install.ps1
+      - install.sh
+      - install.ps1
       - .github/workflows/installers.yml
   workflow_dispatch:
 
@@ -33,12 +33,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: crabx
       - name: Site
         run: |
           mkdir site
-          cp crabx/install.sh crabx/install.ps1 site/
-          printf '<meta http-equiv="refresh" content="0; url=https://github.com/kixel-ai/rust2/tree/main/crabx">\n' > site/index.html
+          cp install.sh install.ps1 site/
+          printf '<meta http-equiv="refresh" content="0; url=https://github.com/kixel-ai/crabx">\n' > site/index.html
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: site

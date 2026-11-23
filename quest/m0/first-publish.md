@@ -5,7 +5,7 @@
 crabx 0.1.0 is on crates.io and npm, and both registries trust only
 `.github/workflows/release.yml` to publish what follows, so `npx crabx <crate>`,
 `bunx crabx <crate>`, `cargo install crabx`, and both installers in
-[crabx's README](/crabx/README.md) work.
+[crabx's README](/README.md) work.
 
 ## Plan
 
@@ -21,9 +21,8 @@ release.yml ([#826](https://github.com/kixel-ai/rust2/pull/826)).
 
 Decided by the maintainer on 2026-11-22, in
 [#948](https://github.com/kixel-ai/rust2/pull/948#issuecomment-7074616370): ✅ this waits
-for [the move to `kixel-ai/crabx`](/quest/m0/crabx-repo.md), so both registries trust that
-repository's `release.yml` from the first version. The steps below already name it and its
-root layout; the move carries this quest into its quest tree.
+for crabx's move from `kixel-ai/rust2` to this repository, so both registries trust this
+repository's `release.yml` from the first version.
 
 The installers are served at `crabx.kixel.ai` by GitHub Pages:
 `.github/workflows/installers.yml` deploys `install.sh` and `install.ps1`
@@ -37,7 +36,7 @@ Cloudflare has the challenge TXT record and the `crabx` CNAME to `kixel-ai.githu
 only; and only `main` may deploy to the `github-pages`, `crates-io`, and `npm` environments.
 The installers deployed and HTTPS is enforced, so `curl -fsSL https://crabx.kixel.ai/install.sh`
 prints the installer. GitHub issued the certificate only after the custom domain was removed
-and set again. The move redoes the Pages and environment steps in `kixel-ai/crabx`.
+and set again. The move redid the Pages and environment steps in `kixel-ai/crabx`.
 
 ## Waiting
 
@@ -75,8 +74,3 @@ and set again. The move redoes the Pages and environment steps in `kixel-ai/crab
     sleep 2
   done
   ```
-
-## Required
-
-- [Move to kixel-ai/crabx](/quest/m0/crabx-repo.md) - the repository the registries trust
-  to publish crabx

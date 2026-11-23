@@ -53,7 +53,7 @@ outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
 only to GitHub's attestation API.
 
 Workflow certificates must name the crate's repository and either that repository's
-workflow or rust2's reusable pipeline. Source refs must be tags or branches, excluding
+workflow or crabx's reusable pipeline, `.github/workflows/crabx.yml` in this repository. Source refs must be tags or branches, excluding
 pull-request refs. A tag must match the asset's release tag or version. Branch-triggered
 builds are accepted so the pipeline can backfill published crates. GitHub release
 attestations must carry GitHub's release-service identity and sign the crate's
@@ -87,21 +87,20 @@ returns its exit code. Prebuilt Linux downloads require glibc; musl builds of cr
 direct users to `--build`.
 
 `crabx init`, run in a public crate repository, writes the caller of
-[rust2's release pipeline](../.github/crabx/README.md) to
+[crabx's release pipeline](pipeline/README.md) to
 `.github/workflows/binaries.yml`, pinned to its current release, so each crates.io
 version gets attested binaries crabx runs. It takes no options, reads origin's
 default branch from git, and never overwrites a different existing file. Run a crate
 named `init` as `crabx init@VERSION`.
 
-Develop with `just crabx check`, `just crabx test`, and `just crabx run <crate> [args]`.
+Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
-builds the commit on every target, publishes it to crates.io, runs [the pipeline](../.github/crabx/README.md)
+builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
 to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the newest stable version's
 binaries to npm as `crabx` and one `@crabx/<platform>` package per target, each verified against its
 attestation first. Every step skips what is already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
 `.github/workflows/installers.yml` serves main's `install.sh` and `install.ps1` at `crabx.kixel.ai`
 through GitHub Pages.
-crabx is GPL-3.0-only because it links binstalk. The other rust2 projects keep their
-existing licenses.
+crabx is GPL-3.0-only because it links binstalk.

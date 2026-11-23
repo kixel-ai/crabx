@@ -60,7 +60,7 @@ case $version in
 esac
 dir=${CRABX_INSTALL_DIR:-$HOME/.local/bin}
 name=crabx-$target-v$version
-url=https://github.com/kixel-ai/rust2/releases/download/crabx-v$version/$name.tgz
+url=https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz
 
 temp=$(mktemp -d)
 trap 'rm -rf "$temp"' EXIT

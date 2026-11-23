@@ -69,9 +69,9 @@ without creating tags or releases, and bypasses crates.io discovery. Local tests
 exercise discovery, archiving, and publishing with recorded API and Cargo
 responses; the fixture workflow builds the real archives on all six targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
-archive with `gh attestation verify <archive> -R kixel-ai/rust2 --signer-workflow
-kixel-ai/rust2/.github/workflows/crabx.yml`. After tagging, point
-`crabx/src/binaries.yml` and the caller above at the tag's commit; a crabx test
+archive with `gh attestation verify <archive> -R kixel-ai/crabx --signer-workflow
+kixel-ai/crabx/.github/workflows/crabx.yml`. After tagging, point
+`src/binaries.yml` and the caller above at the tag's commit; a crabx test
 keeps the two identical.
 
 References: [binstall archive defaults](https://github.com/cargo-bins/cargo-binstall/blob/main/SUPPORT.md),

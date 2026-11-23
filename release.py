@@ -14,7 +14,7 @@ import tomllib
 import urllib.error
 import urllib.request
 
-REPO = "kixel-ai/rust2"
+REPO = "kixel-ai/crabx"
 # The reusable pipeline that builds and attests every release archive.
 SIGNER = f"{REPO}/.github/workflows/crabx.yml"
 # The ref every release run starts from. The signer check names only the pipeline's path,
@@ -51,7 +51,7 @@ def published():
     """Every crabx version on crates.io, yanked included, mapped to whether it is yanked."""
     body = fetch(INDEX)
     if body is None:
-        raise SystemExit("crabx is not on crates.io yet: its first publish is by hand, as quest/m2/crabx/first-publish.md says")
+        raise SystemExit("crabx is not on crates.io yet: its first publish is by hand, as quest/m0/first-publish.md says")
     versions = {}
     for line in body.decode().splitlines():
         entry = json.loads(line)
@@ -81,7 +81,7 @@ def output(**values):
 
 def targets():
     """The pipeline's release targets and the GitHub runner that builds each."""
-    spec = importlib.util.spec_from_file_location("pipeline", HERE.parent / ".github/crabx/pipeline.py")
+    spec = importlib.util.spec_from_file_location("pipeline", HERE / "pipeline/pipeline.py")
     pipeline = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(pipeline)
     if {target for target, _ in pipeline.TARGETS} != set(NPM_TARGETS):
@@ -108,7 +108,7 @@ def crate():
     if version in versions:
         output(publish="false", builds={"include": []})
         return
-    item = {"name": "crabx", "version": version, "sha": os.environ["GITHUB_SHA"], "path": "crabx"}
+    item = {"name": "crabx", "version": version, "sha": os.environ["GITHUB_SHA"], "path": "."}
     output(publish="true", builds={"include": [{**item, "target": target, "os": runner} for target, runner in targets()]})
 
 
@@ -136,7 +136,7 @@ def npm_plan():
 
 
 def verify(archive, version):
-    """Check the archive's attestation names the pipeline run from main, rust2, and this crabx version."""
+    """Check the archive's attestation names the pipeline run from main, this repository, and this crabx version."""
     result = subprocess.run(
         ["gh", "attestation", "verify", str(archive), "--repo", REPO, "--signer-workflow", SIGNER, "--source-ref", SOURCE_REF, "--deny-self-hosted-runners", "--format", "json"],
         check=True,
@@ -169,7 +169,7 @@ def manifest(name, version, description, **fields):
         "name": name,
         "version": version,
         "description": description,
-        "repository": {"type": "git", "url": f"git+https://github.com/{REPO}.git", "directory": "crabx"},
+        "repository": {"type": "git", "url": f"git+https://github.com/{REPO}.git"},
         "license": "GPL-3.0-only",
         "publishConfig": {"access": "public"},
         **fields,

@@ -12,8 +12,8 @@ Non-goals: hosting a builder, building repos that haven't opted in, builds of `m
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
 What stays here once every child has merged: an end-to-end check that runs a published
-crate through crabx on all six targets from a machine with no Rust toolchain, a docs
-page, and crabx in the charter line of AGENTS.md and README.md.
+crate through crabx on all six targets from a machine with no Rust toolchain, and a docs
+page.
 
 ## Plan
 
@@ -50,8 +50,16 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
 - ✅ The name `crabx`, free on npm and crates.io, following npx, bunx, and uvx.
   Rejected: xcrate, rusx, carx.
 - ✅ A pipeline workflow and `crabx init` now, the GitHub App
-  [later](/quest/m3/crabx-app.md). Rejected: the App in the first cut; no App.
-- ✅ m2, the App in m3. Rejected: m1; m3.
+  [later](/quest/m1/app.md). Rejected: the App in the first cut; no App.
+- ✅ m2, the App in m3. Rejected: m1; m3. These were rust2's milestones; in this tree,
+  first publish is m0 and the App m1.
+
+Decided by the maintainer on 2026-11-22, in
+[kixel-ai/rust2#948](https://github.com/kixel-ai/rust2/pull/948#issuecomment-7074616370):
+✅ crabx moves from `kixel-ai/rust2` to this repository, keeping its history (rejected: a
+fresh start; an interim crabx-only toolchain in rust2), since binstalk 0.31 needs Rust 1.100
+while rust2 builds on moq's 1.98.1. Its history is rust2's, filtered to crabx's paths, with
+bare `#N` references rewritten to `kixel-ai/rust2#N`.
 
 moq switching its release workflows to the pipeline is moq's quest, filed from this
 plan's PR; it owns keeping moq's armv7 build, Homebrew asset names, and `.deb`/`.rpm`

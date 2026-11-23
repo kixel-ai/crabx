@@ -3,7 +3,7 @@ name: Crabx fixture
 on:
   pull_request:
     paths:
-      - .github/crabx/**
+      - pipeline/**
       - .github/workflows/crabx*.yml
   workflow_dispatch:
 
@@ -28,7 +28,7 @@ jobs:
         with:
           persist-credentials: false
       - id: plan
-        run: python3 .github/crabx/pipeline.py fixture
+        run: python3 pipeline/pipeline.py fixture
   pr:
     needs: plan
     uses: ./.github/workflows/crabx-build.yml

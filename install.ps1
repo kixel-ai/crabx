@@ -32,7 +32,7 @@
 
 	$dir = if ($env:CRABX_INSTALL_DIR) { $env:CRABX_INSTALL_DIR } else { Join-Path $HOME '.local\bin' }
 	$name = "crabx-$target-v$version"
-	$url = "https://github.com/kixel-ai/rust2/releases/download/crabx-v$version/$name.tgz"
+	$url = "https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz"
 	$temp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
 	New-Item -ItemType Directory $temp | Out-Null
 	try {

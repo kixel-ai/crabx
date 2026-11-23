@@ -29,7 +29,7 @@ jobs:
         with:
           persist-credentials: false
       - id: plan
-        run: python3 crabx/release.py crate
+        run: python3 release.py crate
 
   # The pipeline's build of this commit on every target, so crates.io never holds a
   # version whose binaries fail to build: a published version can't be rebuilt.
@@ -53,7 +53,6 @@ jobs:
         with:
           persist-credentials: false
       - run: cargo package --locked
-        working-directory: crabx
 
   crate:
     needs: [plan, check, package]
@@ -75,7 +74,6 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: cargo publish --locked --no-verify
-        working-directory: crabx
 
   # Also runs when no version was new, to backfill archives a failed run left.
   binaries:
@@ -85,7 +83,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: kixel-ai/rust2/.github/workflows/crabx.yml@pipeline-v1.0.0
+    uses: kixel-ai/crabx/.github/workflows/crabx.yml@pipeline-v1.0.0
 
   # A skipped ancestor, such as crate on a retry, skips every job after it unless its own
   # condition checks a status; these check their direct dependency instead.
@@ -101,9 +99,9 @@ jobs:
         with:
           persist-credentials: false
       - id: plan
-        run: python3 crabx/release.py npm-plan
+        run: python3 release.py npm-plan
 
-  # The one job with npm publishing rights, pinned by crabx/test_release.py. npm trusts
+  # The one job with npm publishing rights, pinned by test_release.py. npm trusts
   # this workflow only in the npm environment, which only main may deploy to, and its
   # trusted publishing needs a GitHub-hosted runner.
   npm:
@@ -127,4 +125,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.npm-plan.outputs.version }}
-        run: python3 crabx/release.py publish "$VERSION"
+        run: python3 release.py publish "$VERSION"
