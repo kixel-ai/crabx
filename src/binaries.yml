@@ -14,4 +14,4 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: kixel-ai/rust2/.github/workflows/crabx.yml@87549d30ad59b6d38eed731b484c4c6b6a089162 # pipeline-v1.0.0
+    uses: kixel-ai/crabx/.github/workflows/crabx.yml@6905ead4b9c6a98ebbaa6517a148a95fc1197429 # pipeline-v1.0.0

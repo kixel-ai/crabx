@@ -384,6 +384,12 @@ class Workflow(unittest.TestCase):
         for name, needs in (("npm-plan", "binaries"), ("npm", "npm-plan")):
             self.assertIn(f"if: ${{{{ !cancelled() && needs.{needs}.result == 'success'", found[name], name)
 
+    def test_binaries_call_the_pipeline_crabx_init_pins(self):
+        # GitHub can't resolve the pipeline's own ./ call to its build workflow through an
+        # annotated tag, so the release pins the tag's commit, as every caller does.
+        pin = re.search(r"\n    uses: (\S+@[0-9a-f]{40} # pipeline-v\S+)\n", (HERE / "src/binaries.yml").read_text())[1]
+        self.assertIn(f"\n    uses: {pin}\n", jobs()["binaries"] + "\n")
+
     def test_publishing_rights_stay_in_their_jobs(self):
         found = jobs()
         self.assertEqual({name for name, job in found.items() if "id-token: write" in job}, {"crate", "binaries", "npm"})
