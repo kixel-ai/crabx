@@ -18,3 +18,4 @@ Attestation queries still use the API, so measure the requests one cold run make
 ## Waiting
 
 - cargo-bins/cargo-binstall: a binstalk-fetchers release after 0.10.54 that holds #2808 and #2813; check `https://crates.io/api/v1/crates/binstalk-fetchers` for its `max_stable_version`
+- Maintainer: whether to offer upstream the fork's resolver fix (`vendor/README.md`'s "Wait for resolver channel capacity": upstream's `try_send` lets a queued error displace the one success), which has no upstream issue or PR. An agent may not post to cargo-bins/cargo-binstall without approval. Options: open an upstream PR with the fix and its test, so the next import drops it (recommended); keep it local.
