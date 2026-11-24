@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo/logo-on-dark.svg">
+    <img src="assets/logo/logo-on-light.svg" alt="crabx" height="66">
+  </picture>
+</p>
+
 # crabx
 
 Run a crates.io CLI from its author's release assets:
