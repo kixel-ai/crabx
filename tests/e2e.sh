@@ -52,7 +52,10 @@ case $(uname -s) in
             trap unblock EXIT
             powershell -NoProfile -Command "New-NetFirewallRule -DisplayName crabx-e2e -Direction Outbound -Action Block -Program '$(cygpath -w "$crabx")' | Out-Null"
         }
-        unblock() { powershell -NoProfile -Command "Remove-NetFirewallRule -DisplayName crabx-e2e -ErrorAction SilentlyContinue"; }
+        unblock() {
+            trap - EXIT
+            powershell -NoProfile -Command "Remove-NetFirewallRule -DisplayName crabx-e2e"
+        }
         offline() { "$@"; }
         ;;
     *) fail "no network block for $(uname -s)" ;;
@@ -60,7 +63,7 @@ esac
 cache=$cache/crabx/v1/$target
 
 # pinned NETWORK SPEC MODE SOURCE [OPTIONS...]: run SPEC's --version through crabx and check its
-# output and the trust source its cache entry records.
+# output, which may add a build note, and the trust source its cache entry records.
 pinned() {
     local network=$1 spec=$2 mode=$3 source=$4
     shift 4
@@ -69,7 +72,7 @@ pinned() {
     if [ "$network" = online ] && [ -e "$entry" ]; then fail "$entry is already cached"; fi
     echo "e2e: $network crabx $* $spec"
     out=$("$network" "$crabx" "$@" "$spec" --version | tr -d '\r')
-    [ "$out" = "$name $version" ] || fail "$spec printed '$out'"
+    case $out in "$name $version" | "$name $version "*) ;; *) fail "$spec printed '$out'" ;; esac
     grep -qF "\"source\":\"$source" "$entry/record.json" || fail "$spec recorded $(cat "$entry/record.json")"
 }
 
@@ -100,9 +103,9 @@ refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.12
 block
 # An uncached version fails offline but installs once the network is back, so the block, not
 # some other failure, is what stopped it, while the cached cases succeed under the same block.
-if error=$(offline "$crabx" hyperfine@1.20.0 --version 2>&1); then fail "the network block let crabx install hyperfine@1.20.0"; fi
-echo "e2e: offline crabx hyperfine@1.20.0 fails: $error"
+if error=$(offline "$crabx" bat@0.26.1 --version 2>&1); then fail "the network block let crabx install bat@0.26.1"; fi
+echo "e2e: offline crabx bat@0.26.1 fails: $error"
 cases offline
 unblock
-pinned online hyperfine@1.20.0 author "author release (no published attestation)\""
+pinned online bat@0.26.1 author "author release (no published attestation)\""
 echo "e2e: every case passed on $target"
