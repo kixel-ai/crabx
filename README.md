@@ -16,7 +16,8 @@ cargo install crabx
 ```
 
 The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_VERSION` or
-`CRABX_INSTALL_DIR` to choose another. Prebuilt crabx covers x86_64 and arm64 on glibc
+`CRABX_INSTALL_DIR` to choose another. `install.ps1` also adds that directory to the user's
+`Path`; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
 Then:
 
@@ -47,8 +48,8 @@ certificate, SCT, signature, artifact digest, and transparency log against Sigst
 production trust root. GitHub's timestamp-only bundles use GitHub's separate CA and
 timestamp authority, verifying the certificate, signature, digest, and RFC 3161 time.
 Both roots refresh through TUF. A malformed bundle, wrong repository, or verification/API
-failure is an error. No published attestation is allowed, as are author releases hosted
-outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
+failure is an error. A release with no published attestation is allowed, as are author
+releases hosted outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
 `GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit; they are sent
 only to GitHub's attestation API.
 
