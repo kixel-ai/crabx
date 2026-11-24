@@ -20,7 +20,7 @@ CI figures are GitHub-hosted runners' own job and step times; local ones are `fe
 Check first:
 
 - Whether a release has run: time `release.yml`'s `check` and `binaries` jobs, which build all six targets twice so crates.io never holds a version whose binaries fail, and measure the archives it shipped against the size above.
-- Whether the gate's cache still hits: a run on `main` whose `Cargo.lock` is unchanged restores it in about 7 s.
+- Whether the gate's cache still hits: a run whose `Cargo.lock` matches `main`'s restores it in about 7 s. A pull request that changes the lockfile, as Dependabot's Cargo bumps do, runs cold, and each one that lands saves another 506 MB against the repository's 10 GB.
 
 Tried and rejected:
 
