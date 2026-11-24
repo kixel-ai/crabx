@@ -77,8 +77,9 @@ Recommendations:
   and run the crate by name from a new shell, on all three OSes.
   [The release](/quest/m1/release-0.2.md) runs the registry command once it
   publishes. After its npm job, `release.yml` runs a read-only job on all
-  three OSes that installs the exact version that job published
-  (`@kixel/crabx@<version>`) and runs the crate by name from a new shell, so
+  three OSes that installs the release's exact version
+  (`@kixel/crabx@<version>`) whenever npm has it, whether this run published
+  it or an earlier one did, so a rerun that skips publishing still checks it, and runs the crate by name from a new shell, so
   a packaging or PATH regression in a published package fails that release's
   run.
 
