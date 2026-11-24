@@ -1,4 +1,4 @@
-# m2
+# m2: the next milestone
 
 ## Goal
 
