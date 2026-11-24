@@ -56,13 +56,15 @@ rather than reading it:
   paths: the first resolve (today binstalk's `VersionReq::STAR` in
   `install.rs`) and `--build`, which passes Cargo that version instead of
   letting it choose.
-- A version runs only if the newest index data crabx holds says it isn't
-  yanked. Nothing fetches early to catch a yank or a release turning
+- An unpinned run executes a version only if the newest index data crabx
+  holds says it isn't yanked. A pinned run of a cached version reads no index
+  and makes no request, as today. Nothing fetches early to catch a yank or a release turning
   eligible: the daily freshness check sees both within a day, and a run waits on the
   network only when nothing cached is eligible.
 - The freshness check, the index fetch that looks for new versions, runs at
   most once a day per crate, in the background, and
-  a failed fetch backs off as today (30 seconds, doubling to 30 minutes). A
+  a failed fetch backs off as today (30 seconds, doubling to 30 minutes);
+  the daily limit counts only successful checks, so retries are exempt. A
   conditional request is sent only when the index data its validator stands
   for is cached, which 0.1.0's refresh state doesn't hold. Installing a
   chosen version makes whatever requests binstalk or Cargo need, such as

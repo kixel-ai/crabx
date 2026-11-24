@@ -19,10 +19,11 @@ This is crabx's first release through `release.yml`, so the npm
 trusted-publishing step in [first publish](/quest/m0/first-publish.md)'s
 `Waiting` has to happen just before the version PR lands; that quest holds
 the procedure. After it lands, check that `release.yml`'s npm job published
-0.2.0. Then run `npx @kixel/crabx@latest token-max@0.1.0 --version` and
-`npx @kixel/crabx@latest install token-max@0.1.0`, pinned so the 24h delay
-doesn't matter, and once token-max 0.1.0 is a day old, run the unpinned
-commands in the goal.
+0.2.0. Then run `npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
+`npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
+doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
+commands in the goal, with `@kixel/crabx@0.2.0`, on an empty crabx cache, so
+a cold run resolves it rather than a warm cache's day-old index.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.

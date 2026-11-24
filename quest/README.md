@@ -34,7 +34,8 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   Decided 2026-11-24 (maintainer, /quest-run): npm refuses the unscoped `crabx`, so ✅ the
   npm package is `@kixel/crabx`, installed once with `npm install -g @kixel/crabx`, and the
   docs drop `npx`/`bunx` runs (rejected: asking npm for `crabx`; another unscoped name).
-  Decided 2026-11-24 (maintainer, /quest-plan in kixel-ai/token-max): ✅ the docs
+  Superseded for the scoped package on 2026-11-24 (maintainer, /quest-plan in
+  kixel-ai/token-max), so this governs over the line above: ✅ the docs
   offer the scoped `npx @kixel/crabx install` as a one-line install, and
   token-max's site runs `npx @kixel/crabx token-max doctor`; see
   [`crabx install`](/quest/m1/install.md).
