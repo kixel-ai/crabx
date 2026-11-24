@@ -33,7 +33,8 @@ Recommendations:
   and `install.ps1` into the Pages artifact, and deploys on changes to any of them.
   Extend `test_release.py`'s check that every installer URL users see names a file the
   job copies.
-- Follow token-max's page and kixel.me's dark palette. Self-host any fonts, add a
+- Follow token-max's page on a dark background, accented with the logo's orange
+  (`#e8590c`) and cyan (`#22d3ee`). Self-host any fonts, add a
   `<meta>` CSP limited to the page's own origin, add the avatar as a small webp, and add
   an `og.png` of the page's top.
 - Get the terminal's run from the built binary, and keep it free of private names.
