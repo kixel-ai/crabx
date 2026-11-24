@@ -57,6 +57,8 @@ attests the downloaded archives and writes releases; it never runs crate code.
 Callers must grant its three permissions. Public GitHub.com repositories are the
 supported boundary; private repositories and GitHub Enterprise Server are not.
 
+The pipeline runs only on `push`, `schedule`, and `workflow_dispatch`; any other
+caller event fails its first step with an error naming the three.
 Tags made with `GITHUB_TOKEN` do not trigger workflows, which is why the default
 branch push, daily schedule, and manual dispatch are included. GitHub disables
 public schedules after 60 inactive days; the next push or dispatch backfills
