@@ -60,24 +60,20 @@ users install once with `npm install -g @kixel/crabx` to get the plain `crabx` c
 crabx's docs drop `npx crabx` and `bunx crabx`, since the point is running `crabx` itself
 (rejected: asking npm support to allow `crabx`; another unscoped name).
 
+Done on 2026-11-24 (/quest-run, with the maintainer's 2FA code): `@kixel/crabx` 0.1.0 is on
+npm, packed from `main` at `e2ab15a` on fedora, where the maintainer is signed in to npm. npm
+answered the first publish of a new package name with `202` and served only a `0.0.0-stage`
+placeholder for about two minutes before 0.1.0 appeared. `npm install -g @kixel/crabx` then
+installed it from the registry, and `crabx --version` printed `crabx 0.1.0`.
+
 ## Waiting
-
-- Maintainer: publish the launcher `@kixel/crabx`; `release.py publish` skips the six
-  platform packages npm already has. An agent can't: it needs the maintainer's npm login
-  and 2FA. Run it from a checkout of `main` that names the launcher `@kixel/crabx`, since
-  `release.py` names the packages and copies `npm/crabx.js` from the checkout. Check
-  `npm install -g @kixel/crabx && crabx --version` prints `crabx 0.1.0`.
-
-  ```sh
-  npm login
-  GH_TOKEN=$(gh auth token) python3 release.py publish 0.1.0
-  ```
 
 - Maintainer: when the next version's release PR is about to land, trust release.yml for
   each npm package (npm 11.15.0 or later), not before: npm expires a new trusted-publisher
   configuration that hasn't published within 2 days
   (https://docs.npmjs.com/trusted-publishers), and release.yml's npm job only publishes a
-  version npm lacks. An agent can't: it needs the maintainer's npm login and 2FA. If a
+  version npm lacks. It needs the maintainer's npm login and a 2FA code, so an agent runs it
+  on fedora with a code the maintainer gives through the secret prompt. If a
   configuration expires first, delete it and create it again. Check release.yml's npm job
   publishes that version.
 
