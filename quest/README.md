@@ -61,6 +61,6 @@ fresh start; an interim crabx-only toolchain in rust2), since binstalk 0.31 need
 while rust2 builds on moq's 1.98.1. Its history is rust2's, filtered to crabx's paths, with
 bare `#N` references rewritten to `kixel-ai/rust2#N`.
 
-moq switching its release workflows to the pipeline is moq's quest, filed from this
-plan's PR; it owns keeping moq's armv7 build, Homebrew asset names, and `.deb`/`.rpm`
-packages, alongside or instead of the pipeline.
+moq switching its release workflows to the pipeline is moq's own quest, which owns keeping
+moq's armv7 build, Homebrew asset names, and `.deb`/`.rpm` packages, alongside or instead
+of the pipeline; [moq's adoption](/quest/m1/moq.md) waits for it.
