@@ -4,13 +4,13 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
-# Lint the runner, its local fork of binstalk's fetchers, the release scripts, the installer, the workflows, and the quest tree.
+# Lint the runner, its local fork of binstalk's fetchers, the release scripts, the installer, the e2e script, the workflows, and the quest tree.
 check:
     cargo clippy --locked --all-targets -- -D warnings
     cargo fmt --all --check
     ruff check --select F
-    shellcheck install.sh
-    shfmt -d install.sh
+    shellcheck install.sh tests/e2e.sh
+    shfmt -d install.sh tests/e2e.sh
     actionlint
     taplo format --check
     nixfmt --check flake.nix
@@ -32,6 +32,6 @@ run *args:
 # Apply formatters without changing program behavior.
 fix:
     cargo fmt --all
-    shfmt -w install.sh
+    shfmt -w install.sh tests/e2e.sh
     taplo format
     nixfmt flake.nix

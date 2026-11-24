@@ -11,6 +11,9 @@ The site is `site/`, deployed by `.github/workflows/site.yml`. Its domain switch
 crabx.kixel.ai ran after the site's PR merged; until https://crabx.kixel.me/install.sh
 prints the installer, the site isn't live yet.
 
+Decided 2026-11-24 (maintainer, [kixel-ai/crabx#23](https://github.com/kixel-ai/crabx/pull/23#issuecomment-7141565098)):
+✅ keep this follow-up (rejected: drop).
+
 ## Waiting
 
 - Maintainer: open https://crabx.kixel.me on desktop and phone, run its install line, and

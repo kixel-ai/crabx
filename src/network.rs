@@ -25,6 +25,53 @@ pub fn client() -> Result<Client> {
 		.build()?)
 }
 
+/// The `GH_TOKEN` or `GITHUB_TOKEN` credential, which raises GitHub's API rate limit.
+// It is sent only to the fixed GitHub API origin, never to archive hosts, sparse
+// indexes, or Sigstore's trust-root services.
+pub fn github_token() -> Result<Option<String>> {
+	for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
+		match std::env::var(name) {
+			Ok(token) if token.is_empty() => (),
+			// Release discovery would silently drop a token it can't send in a header.
+			Ok(token) => {
+				ensure!(
+					token.bytes().all(|b| b.is_ascii_graphic()),
+					"{name} holds characters a token cannot"
+				);
+				return Ok(Some(token));
+			}
+			Err(std::env::VarError::NotPresent) => (),
+			Err(_) => anyhow::bail!("{name} is not UTF-8"),
+		}
+	}
+	Ok(None)
+}
+
+/// Whether GitHub accepts the token, asked once with the rate-limit endpoint, which spends no
+/// quota. Anything but a 401 counts as accepted, leaving the error to the query that needed it.
+pub async fn github_token_accepted() -> bool {
+	static ACCEPTED: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+	*ACCEPTED
+		.get_or_init(|| async {
+			let (Ok(Some(token)), Ok(client)) = (github_token(), client()) else {
+				return true;
+			};
+			let response = client
+				.get("https://api.github.com/rate_limit")
+				.header("Accept", "application/vnd.github+json")
+				.bearer_auth(token)
+				// Leaves the 30 s discovery deadline room for the query this check precedes.
+				.timeout(Duration::from_secs(10))
+				.send()
+				.await;
+			!matches!(response, Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED)
+		})
+		.await
+}
+
+/// The error for a token GitHub rejects.
+pub const REJECTED_TOKEN: &str = "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it";
+
 // Spool responses to disk instead of retaining the sparse index or pages of bundles.
 pub async fn spool(mut response: Response, directory: &std::path::Path) -> Result<tempfile::NamedTempFile> {
 	let mut file = tempfile::NamedTempFile::new_in(directory)?;

@@ -22,7 +22,13 @@ pub(super) use tracing::{debug, instrument, warn};
 use crate::fetchers::FetchError;
 
 static WARN_RATE_LIMIT_ONCE: Once = Once::new();
-static WARN_UNAUTHORIZED_ONCE: Once = Once::new();
+static TOKEN_REJECTED: AtomicBool = AtomicBool::new(false);
+
+/// Whether GitHub's API rejected the token during discovery. The resolver swallows a candidate's
+/// error, so the caller checks this to fail by name, only when discovery actually used GitHub.
+pub fn token_rejected() -> bool {
+	TOKEN_REJECTED.load(Relaxed)
+}
 
 /// Return Ok(Some(api_artifact_url)) if exists, or Ok(None) if it doesn't.
 ///
@@ -32,6 +38,15 @@ pub(super) async fn get_gh_release_artifact_url(
 	artifact: GhReleaseArtifact,
 ) -> Result<Option<GhReleaseArtifactUrl>, GhApiError> {
 	debug!("Using GitHub API to check for existence of artifact, which will also cache the API response");
+
+	// Ask once, before the first query, so the hundreds of candidate URLs don't each resend a
+	// rejected token and queue behind each other's 401s.
+	if gh_api_client.has_gh_token() && !crate::network::github_token_accepted().await {
+		TOKEN_REJECTED.store(true, Relaxed);
+	}
+	if token_rejected() {
+		return Err(GhApiError::Unauthorized);
+	}
 
 	// The future returned has the same size as a pointer
 	match gh_api_client.has_release_artifact(artifact).await {
@@ -45,13 +60,11 @@ pub(super) async fn get_gh_release_artifact_url(
             });
 			Err(GhApiError::RateLimit { retry_after })
 		}
+		// Without a token, a 401 says nothing about the caller, who can only fall back.
 		Err(GhApiError::Unauthorized) => {
-			WARN_UNAUTHORIZED_ONCE.call_once(|| {
-				warn!(
-					"GitHub API somehow requires a token for the API access, so we will fallback to HEAD/GET on the url."
-				);
-				warn!("Please consider supplying a token to cargo-binstall to speedup resolution.");
-			});
+			if gh_api_client.has_gh_token() {
+				TOKEN_REJECTED.store(true, Relaxed);
+			}
 			Err(GhApiError::Unauthorized)
 		}
 
@@ -76,7 +89,8 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 		match get_gh_release_artifact_url(gh_api_client, artifact).await {
 			Ok(ret) => return Ok(ret.is_some()),
 
-			Err(GhApiError::RateLimit { .. }) | Err(GhApiError::Unauthorized) => {}
+			Err(GhApiError::RateLimit { .. }) => {}
+			Err(GhApiError::Unauthorized) if !token_rejected() => {}
 
 			Err(err) => return Err(err.into()),
 		}
