@@ -16,8 +16,8 @@ crabx moq-cli --help
 Install crabx once, from its release:
 
 ```sh
-curl -fsSL https://crabx.kixel.ai/install.sh | sh
-powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.ai/install.ps1 | iex"
+curl -fsSL https://crabx.kixel.me/install.sh | sh
+powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
 npm install -g @kixel/crabx
 cargo install crabx
 ```
@@ -109,6 +109,6 @@ to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the new
 binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
 attestation first. Every step skips what is already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
-`.github/workflows/installers.yml` serves main's `install.sh` and `install.ps1` at `crabx.kixel.ai`
-through GitHub Pages.
+`.github/workflows/site.yml` serves `site/`, crabx's one-page site, and main's `install.sh` and
+`install.ps1` at [crabx.kixel.me](https://crabx.kixel.me) through GitHub Pages.
 crabx is GPL-3.0-only because it links binstalk.

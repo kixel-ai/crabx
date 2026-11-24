@@ -1,21 +1,22 @@
-name: Installers
+name: Site
 
-# Serves crabx's installers at https://crabx.kixel.ai/install.sh and /install.ps1 on
-# GitHub Pages, so users run main's copy behind a domain that outlives the repo layout.
+# Serves site/ and crabx's installers at https://crabx.kixel.me on GitHub Pages, so users
+# run main's install.sh and install.ps1 behind a domain that outlives the repo layout.
 on:
   push:
     branches: [main]
     paths:
+      - site/**
       - install.sh
       - install.ps1
-      - .github/workflows/installers.yml
+      - .github/workflows/site.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: installers
+  group: site
   cancel-in-progress: true
 
 jobs:
@@ -35,11 +36,10 @@ jobs:
           persist-credentials: false
       - name: Site
         run: |
-          mkdir site
-          cp install.sh install.ps1 site/
-          printf '<meta http-equiv="refresh" content="0; url=https://github.com/kixel-ai/crabx">\n' > site/index.html
+          cp -r site _site
+          cp install.sh install.ps1 _site/
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site
+          path: _site
       - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

@@ -439,16 +439,23 @@ class Workflow(unittest.TestCase):
         self.assertNotIn("pull_request", head)
         self.assertIn("permissions:\n  contents: read\n", head)
 
-    def test_installer_urls_are_deployed(self):
-        # Every crabx.kixel.ai URL users are told to fetch names a file the Pages job copies.
-        site = (HERE / ".github/workflows/installers.yml").read_text()
-        texts = [(HERE / f).read_text() for f in ("README.md", "install.sh", "install.ps1")]
-        urls = {u for t in texts for u in re.findall(r"https://crabx\.kixel\.ai/(\S*?)(?=[\s\"|])", t)}
-        self.assertEqual(urls, {"install.sh", "install.ps1"})
+    def test_site_urls_are_deployed(self):
+        # Every crabx.kixel.me URL users see names a file the Pages job publishes: one under
+        # site/, which it copies whole, or an installer it copies beside them.
+        site = (HERE / ".github/workflows/site.yml").read_text()
+        self.assertRegex(site, r"\n +cp -r site _site\n")
+        files = ("README.md", "install.sh", "install.ps1", "site/index.html")
+        texts = [(HERE / f).read_text() for f in files]
+        urls = {u for t in texts for u in re.findall(r"https://crabx\.kixel\.me/(\S*?)(?=[\s\"|<])", t)}
+        self.assertTrue({"install.sh", "install.ps1"} <= urls)
         for name in urls:
-            self.assertRegex(site, rf"\n +cp [^\n]*\b{re.escape(name)}\b")
+            if name in ("install.sh", "install.ps1"):
+                self.assertRegex(site, rf"\n +cp [^\n]*\b{re.escape(name)}\b[^\n]*_site/")
+            else:
+                self.assertTrue((HERE / "site" / (name or "index.html")).is_file(), name)
         self.assertEqual("".join(texts).count("raw.githubusercontent"), 0)
-
+        # The retired domain serves nothing.
+        self.assertEqual("".join(texts).count("crabx.kixel.ai"), 0)
 
 if __name__ == "__main__":
     unittest.main()
