@@ -21,5 +21,7 @@ Local changes:
 - Drop private-repository support: no repository-privacy query, no download with the
   GitHub token, and a release asset the API finds is confirmed without the token, so a
   private one reads as missing and the token goes only to GitHub's API.
+- Make a token GitHub's API rejects end discovery: record it for crabx to fail by name
+  instead of resending it for every candidate behind a tokenless fallback.
 
 Upstream: https://github.com/cargo-bins/cargo-binstall

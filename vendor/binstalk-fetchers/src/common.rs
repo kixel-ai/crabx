@@ -22,7 +22,13 @@ pub(super) use tracing::{debug, instrument, warn};
 use crate::fetchers::FetchError;
 
 static WARN_RATE_LIMIT_ONCE: Once = Once::new();
-static WARN_UNAUTHORIZED_ONCE: Once = Once::new();
+static TOKEN_REJECTED: AtomicBool = AtomicBool::new(false);
+
+/// Whether GitHub's API rejected the token during discovery. The resolver swallows a candidate's
+/// error, so the caller checks this to fail by name, and only once discovery actually used GitHub.
+pub fn token_rejected() -> bool {
+	TOKEN_REJECTED.load(Relaxed)
+}
 
 /// Return Ok(Some(api_artifact_url)) if exists, or Ok(None) if it doesn't.
 ///
@@ -46,12 +52,7 @@ pub(super) async fn get_gh_release_artifact_url(
 			Err(GhApiError::RateLimit { retry_after })
 		}
 		Err(GhApiError::Unauthorized) => {
-			WARN_UNAUTHORIZED_ONCE.call_once(|| {
-				warn!(
-					"GitHub API somehow requires a token for the API access, so we will fallback to HEAD/GET on the url."
-				);
-				warn!("Please consider supplying a token to cargo-binstall to speedup resolution.");
-			});
+			TOKEN_REJECTED.store(true, Relaxed);
 			Err(GhApiError::Unauthorized)
 		}
 
@@ -76,7 +77,7 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 		match get_gh_release_artifact_url(gh_api_client, artifact).await {
 			Ok(ret) => return Ok(ret.is_some()),
 
-			Err(GhApiError::RateLimit { .. }) | Err(GhApiError::Unauthorized) => {}
+			Err(GhApiError::RateLimit { .. }) => {}
 
 			Err(err) => return Err(err.into()),
 		}

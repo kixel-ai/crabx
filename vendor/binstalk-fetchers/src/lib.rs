@@ -20,6 +20,7 @@ pub use quickinstall::*;
 
 mod common;
 use common::*;
+pub use common::token_rejected;
 
 mod signing;
 use signing::*;

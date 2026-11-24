@@ -2,6 +2,7 @@ use crate::{
 	cache::{self, Cache, Record},
 	cli::{Args, Spec},
 	fetchers::{
+		self,
 		Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData, TargetDataErased,
 	},
 	network,
@@ -120,9 +121,7 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 	};
 	let gh = GhApiClient::new(
 		client.clone(),
-		network::checked_github_token()
-			.await?
-			.map(|token| token.into_boxed_str().into()),
+		network::github_token()?.map(|token| token.into_boxed_str().into()),
 	);
 	// With a token binstalk prefers GraphQL and never retries on REST, so an exhausted GraphQL
 	// budget would fail discovery; REST shares the budget trust.rs already spends on attestations.
@@ -201,6 +200,8 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		)
 		.await
 		.context("release discovery timed out")???;
+		// Checked after each candidate, so only discovery that reached GitHub's API needs the token.
+		ensure!(!fetchers::token_rejected(), network::REJECTED_TOKEN);
 		if !found {
 			continue;
 		}

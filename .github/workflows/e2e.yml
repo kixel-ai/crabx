@@ -94,7 +94,11 @@ jobs:
   # The documented `irm | iex`, run on this checkout's installer. It downloads the published
   # release, so it needs no build and runs whatever the e2e legs do.
   install-ps1:
-    runs-on: windows-2025
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
