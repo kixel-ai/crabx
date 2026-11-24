@@ -107,10 +107,10 @@ def published(name, version, repo):
         manifest["bin"] = [{"name": name}]
     # Only a release of this repository's binaries needs its published source.
     if not manifest.get("bin"):
-        return manifest, None
+        return None
     if not same_repo(manifest["package"].get("repository"), repo):
         print(f"{name}@{version}: its published manifest names another repository", file=sys.stderr)
-        return manifest, None
+        return None
     if f"{name}-{version}/.cargo_vcs_info.json" not in files:
         raise ValueError(f"{name}@{version}: published without its git commit; yank it to skip it")
     vcs = json.loads(files[f"{name}-{version}/.cargo_vcs_info.json"])
@@ -121,7 +121,7 @@ def published(name, version, repo):
         raise ValueError("invalid published crate path")
     if manifest["package"]["name"] != name or manifest["package"]["version"] != version:
         raise ValueError("registry archive identity mismatch")
-    return manifest, {"name": safe(name), "version": safe(version), "sha": vcs["git"]["sha1"], "path": str(path)}
+    return {"name": safe(name), "version": safe(version), "sha": vcs["git"]["sha1"], "path": str(path)}
 
 
 def discover():
@@ -144,9 +144,9 @@ def discover():
             print(f"{name}: no crates.io crate names {repo} as its repository", file=sys.stderr)
             continue
         for version in info["versions"]:
-            if version["yanked"] or datetime.datetime.fromisoformat(version["created_at"].replace("Z", "+00:00")) < since:
+            if version["yanked"] or datetime.datetime.fromisoformat(version["created_at"]) < since:
                 continue
-            _, item = published(name, safe(version["num"]), repo)
+            item = published(name, safe(version["num"]), repo)
             if item is None:
                 continue
             item["tag"] = tag(item)
@@ -208,7 +208,6 @@ def publish(item):
             if not path.is_file():
                 raise ValueError(f"missing asset: {path.name}")
             run("gh", "release", "upload", name, str(path), "--repo", os.environ["GITHUB_REPOSITORY"])
-
 
 
 def provenance(item):

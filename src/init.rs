@@ -10,7 +10,7 @@ use std::{
 const TEMPLATE: &str = include_str!("binaries.yml");
 
 /// Where the caller lives, relative to the repository root.
-pub const PATH: &str = ".github/workflows/binaries.yml";
+const PATH: &str = ".github/workflows/binaries.yml";
 
 /// Write the pipeline's caller workflow into the current git repository.
 pub fn run() -> Result<()> {
