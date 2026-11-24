@@ -336,7 +336,7 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 	Ok(candidates.remove(0))
 }
 
-fn build(stage: &std::path::Path, spec: &Spec, version: Option<&Version>) -> Result<Record> {
+fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record> {
 	let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
 	let mut command = Command::new(cargo);
 	command
