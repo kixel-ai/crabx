@@ -87,6 +87,9 @@ cases() {
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }
 
+# Release discovery and downloads go to GitHub unauthenticated, as users' do, under a quota this
+# address may share; a failure log needs what was left of it.
+echo "e2e: unauthenticated GitHub API quota: $(curl -fsS --max-time 30 https://api.github.com/rate_limit | tr -d ' \n' | grep -o '"core":{[^}]*}')"
 cases online
 
 # Refusals name what to do instead, and install nothing.
