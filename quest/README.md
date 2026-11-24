@@ -11,7 +11,8 @@ adding one configless workflow. moq's CLIs (moq-cli, moq-relay) use it first.
 Non-goals: hosting a builder, building repos that haven't opted in, builds of `main` or
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
-What stays here once every child has merged: a docs page.
+What stays here once every child has merged: nothing. The docs page is [the site](/quest/m0/site/README.md),
+and the end-to-end check is [e2e](/quest/m1/e2e.md).
 
 ## Plan
 
@@ -59,6 +60,6 @@ fresh start; an interim crabx-only toolchain in rust2), since binstalk 0.31 need
 while rust2 builds on moq's 1.98.1. Its history is rust2's, filtered to crabx's paths, with
 bare `#N` references rewritten to `kixel-ai/rust2#N`.
 
-moq switching its release workflows to the pipeline is moq's quest, filed from this
-plan's PR; it owns keeping moq's armv7 build, Homebrew asset names, and `.deb`/`.rpm`
-packages, alongside or instead of the pipeline.
+moq switching its release workflows to the pipeline is a quest in moq-dev/moq's own tree,
+which owns keeping moq's armv7 build, Homebrew asset names, and `.deb`/`.rpm` packages,
+alongside or instead of the pipeline.

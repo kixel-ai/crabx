@@ -174,18 +174,24 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(len(uploads), 5)
         self.assertNotIn("archives/" + first, [args[4] for args in uploads])
 
-    def test_discovery_missing_targets(self):
-        repo = "https://github.com/example/demo"
+    def discovered(self):
+        """Run the real discover() and published() against a crate whose first target is already released."""
+        manifest = f'[package]\nname="demo"\nversion="1.2.3"\nrepository="{REPO}"\n[[bin]]\nname="demo"\n'.encode()
+        archive = crate({"Cargo.toml": manifest, ".cargo_vcs_info.json": json.dumps({"git": {"sha1": ITEM["sha"]}, "path_in_vcs": ITEM["path"]}).encode()})
         def run(*args):
             if args[:2] == ("git", "log"):
                 return "2026-01-01T00:00:00+00:00"
             if args[:2] == ("git", "ls-files"):
                 return "Cargo.toml"
             return p.asset(ITEM, p.TARGETS[0][0])
-        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": repo}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p, "published", return_value=({"package": {"repository": repo}, "bin": [{"name": "demo"}]}, dict(ITEM))) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": REPO}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p.urllib.request, "urlopen", return_value=archive), patch.object(p, "published", wraps=p.published) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
             items = p.discover()
         self.assertEqual(published.call_count, 1)
-        self.assertEqual(items[0]["targets"], [t for t, _ in p.TARGETS[1:]])
+        return items
+
+    def test_discovery_missing_targets(self):
+        items = self.discovered()
+        self.assertEqual(items, [{**ITEM, "targets": [t for t, _ in p.TARGETS[1:]]}])
 
     def test_build_refuses_a_checkout_that_is_not_the_published_crate(self):
         for packages, error in (
@@ -221,11 +227,11 @@ class Pipeline(unittest.TestCase):
     def test_outputs_carry_every_field_the_workflows_read(self):
         def reads(workflow):
             return set(re.findall(r"\bmatrix\.([a-z_]+)", (Path(__file__).parents[1] / ".github/workflows" / workflow).read_text()))
-        for mode, items in (("fixture", ()), ("discover", [{**ITEM, "targets": [t for t, _ in p.TARGETS[:2]]}])):
+        for mode, items in (("fixture", ()), ("discover", self.discovered())):
             found = self.outputs(mode, items)
             self.assertIs(found["any"], True)
             builds = found["builds"]["include"]
-            self.assertEqual(len(builds), 6 if mode == "fixture" else 2)
+            self.assertEqual(len(builds), 6 if mode == "fixture" else 5)
             for build in builds:
                 self.assertLessEqual(reads("crabx-build.yml"), build.keys(), mode)
                 self.assertEqual(build["os"], dict(p.TARGETS)[build["target"]])

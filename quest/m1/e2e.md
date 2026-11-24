@@ -13,7 +13,5 @@ A failure fails the run loudly; nothing retries.
 - Then each run repeats the pinned invocation with the network blocked, which must still succeed from the cache.
 - This takes over the end-to-end check [crabx's root quest](/quest/README.md) kept for last: nothing in it needs the other children.
 - The cost audit owns CI run time; the job runs nightly, outside the merge gate.
-
-## Waiting
-
-- Maintainer: whether the install path also gets a hermetic test in the merge gate. Options: nightly live runs only (recommended: they check the real registry, GitHub API, and Sigstore contracts, and a hermetic test needs an injectable API origin, which the fixed `api.github.com` checks in `trust.rs` deliberately forbid); also fake registry and GitHub servers behind a test-only origin, which catches regressions before merge at the cost of mirroring both APIs by hand.
+- Decided 2026-11-24 (maintainer, /quest-run): ✅ keep this quest (rejected: drop it).
+- Decided 2026-11-24 (maintainer, /quest-run): ✅ nightly live runs only, with no offline install-path test in the merge gate (rejected: also fake crates.io and GitHub servers in the gate behind a test-only origin). The live runs check the real registry, GitHub API, and Sigstore contracts, and a fake needs an injectable API origin, which `trust.rs`'s fixed `api.github.com` checks forbid.
