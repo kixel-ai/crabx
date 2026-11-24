@@ -245,8 +245,19 @@ class Launcher(unittest.TestCase):
             self.assertEqual(child.communicate(timeout=30)[0], f"{child.pid}\n", runtime)
 
     def test_signals_reach_the_binary(self):
-        # `wait` returns as soon as the trapped signal arrives, unlike a foreground sleep.
-        self.binary("trap 'kill $!; echo got INT; exit 2' INT\ntrap 'kill $!; echo got TERM; exit 3' TERM\necho ready\nsleep 60 >/dev/null &\nwait\n")
+        # One process that handles the signal itself: a shell waiting on a background sleep
+        # leaks it when the trap's kill lands before the sleep execs, and the orphan holds
+        # the caller's stderr open. The alarm ends a run whose signal never arrives, before
+        # the caller's own timeout would leave it behind.
+        self.binary("""exec python3 -I -c '
+import signal, sys
+for name, code in (("INT", 2), ("TERM", 3)):
+    signal.signal(getattr(signal, "SIG" + name), lambda *_, name=name, code=code: (print("got", name), sys.exit(code)))
+print("ready", flush=True)
+signal.alarm(20)
+signal.pause()
+'
+""")
         # The fallback ignores SIGINT, which a terminal already sends the binary through the group.
         cases = [(r, s) for r in ("node", "bun") for s in (signal.SIGINT, signal.SIGTERM)] + [("old node", signal.SIGTERM)]
         for runtime, sig in cases:

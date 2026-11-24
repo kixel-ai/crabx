@@ -53,3 +53,7 @@ libc = "0.2.183"
 
 [profile.release]
 strip = true
+# Whole-program optimization: a smaller download for every user, paid in build time by each
+# release build and by `cargo install`.
+lto = "fat"
+codegen-units = 1
