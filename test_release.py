@@ -222,13 +222,14 @@ class Launcher(unittest.TestCase):
     def test_signals_reach_the_binary(self):
         # One process that handles the signal itself: a shell waiting on a background sleep
         # leaks it when the trap's kill lands before the sleep execs, and the orphan holds
-        # the caller's stderr open. The alarm ends a run whose signal never arrives.
+        # the caller's stderr open. The alarm ends a run whose signal never arrives, before
+        # the caller's own timeout would leave it behind.
         self.binary("""exec python3 -I -c '
 import signal, sys
 for name, code in (("INT", 2), ("TERM", 3)):
     signal.signal(getattr(signal, "SIG" + name), lambda *_, name=name, code=code: (print("got", name), sys.exit(code)))
 print("ready", flush=True)
-signal.alarm(60)
+signal.alarm(20)
 signal.pause()
 '
 """)
