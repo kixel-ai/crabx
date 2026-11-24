@@ -15,6 +15,8 @@ Upstream landed it on cargo-binstall's `main` after the vendored revision `f027d
 They change binstalk-git-repo-api and binstalk-downloader too, which crabx takes from crates.io, so port them once those crates release: re-import binstalk-fetchers at the release's revision, reapply the local changes `vendor/README.md` lists, and bump the sibling crates to match.
 Attestation queries still use the API, so measure the requests one cold run makes before and after.
 
+`.github/workflows/e2e.yml` shows the cost: a `macos-15` arm runner shares its address's unauthenticated quota, and in [run 45339444768](https://github.com/kixel-ai/crabx/actions/runs/45339444768/job/138264632187) it started at 0 of 60, so `crabx --allow-quickinstall cargo-expand@1.0.126` failed with `release discovery timed out`. Once ported, that job's runs show whether the fix holds.
+
 Decided 2026-11-24 (maintainer, /quest-run): ✅ keep this quest (rejected: drop it).
 
 Decided 2026-11-24 (maintainer, /quest-run): ✅ offer the fork's resolver fix (`vendor/README.md`'s "Wait for resolver channel capacity": upstream's `try_send` lets a queued error displace the one success) upstream to cargo-bins/cargo-binstall as a PR with its test, so the next import drops it (rejected: keep it local).
