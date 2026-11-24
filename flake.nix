@@ -61,6 +61,7 @@
               # release.py and the pipeline are Python; the npm launcher's tests run it on
               # Node and Bun, and pack its packages with npm.
               python3
+              ruff
               nodejs
               bun
             ];

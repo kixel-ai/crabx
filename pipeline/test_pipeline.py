@@ -99,16 +99,15 @@ class Pipeline(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         p.published("demo", "1.2.3", REPO)
                 else:
-                    manifest_, item = p.published("demo", "1.2.3", REPO)
+                    item = p.published("demo", "1.2.3", REPO)
                     self.assertEqual(item["sha"], ITEM["sha"])
-                    self.assertEqual(manifest_["package"]["version"], ITEM["version"])
         with patch.object(p.urllib.request, "urlopen", return_value=crate({"Cargo.toml": manifest})):
             with self.assertRaisesRegex(ValueError, "without its git commit"):
                 p.published("demo", "1.2.3", REPO)
         # Another repository's release is skipped before its source is checked.
         dirty = json.dumps({"git": {"sha1": ITEM["sha"], "dirty": True}}).encode()
         with patch.object(p.urllib.request, "urlopen", return_value=crate({"Cargo.toml": manifest, ".cargo_vcs_info.json": dirty})):
-            self.assertIsNone(p.published("demo", "1.2.3", "https://github.com/example/other")[1])
+            self.assertIsNone(p.published("demo", "1.2.3", "https://github.com/example/other"))
 
     def test_null_repository(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=["2026-01-01T00:00:00+00:00", "Cargo.toml"]), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": None}}):
@@ -122,7 +121,7 @@ class Pipeline(unittest.TestCase):
                 source: b"fn main() {}",
             })
             with patch.object(p.urllib.request, "urlopen", return_value=archive):
-                self.assertEqual(p.published("demo", "1.2.3", REPO)[1] is not None, expected)
+                self.assertEqual(p.published("demo", "1.2.3", REPO) is not None, expected)
 
     def test_template_name(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=["2026-01-01T00:00:00+00:00", "Cargo.toml"]), patch.object(Path, "read_text", return_value='[package]\nname="{{project-name}}"'), patch.object(p, "request") as request:
@@ -181,7 +180,7 @@ class Pipeline(unittest.TestCase):
             if args[:2] == ("git", "ls-files"):
                 return "Cargo.toml"
             return p.asset(ITEM, p.TARGETS[0][0])
-        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": repo}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p, "published", return_value=({"package": {"repository": repo}, "bin": [{"name": "demo"}]}, dict(ITEM))) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": repo}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p, "published", return_value=dict(ITEM)) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
             items = p.discover()
         self.assertEqual(published.call_count, 1)
         self.assertEqual(items[0]["targets"], [t for t, _ in p.TARGETS[1:]])
