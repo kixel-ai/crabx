@@ -53,16 +53,26 @@ six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
 
 ## Waiting
 
-- Maintainer: publish the npm packages, which verifies each archive's attestation first,
-  then trust the workflow for each (npm 11.15.0 or later). An agent can't: both need the
-  maintainer's npm login and 2FA. Run it from a checkout of `main` that has
-  [#14](https://github.com/kixel-ai/crabx/pull/14), since `release.py` names the packages and
-  copies `npm/crabx.js` from the checkout; the one at `f1d6151` still names `@crabx/*`. Check
-  `npx crabx --version` prints `crabx 0.1.0`.
+- Maintainer: publish the npm packages, which verifies each archive's attestation first. An
+  agent can't: it needs the maintainer's npm login and 2FA. Run it from a checkout of `main`
+  that has [#14](https://github.com/kixel-ai/crabx/pull/14), since `release.py` names the
+  packages and copies `npm/crabx.js` from the checkout; the one at `f1d6151` still names
+  `@crabx/*`. Check `npx crabx --version` prints `crabx 0.1.0`.
 
   ```sh
   npm login
   GH_TOKEN=$(gh auth token) python3 release.py publish 0.1.0
+  ```
+
+- Maintainer: when the next version's release PR is about to land, trust release.yml for
+  each npm package (npm 11.15.0 or later), not before: npm expires a new trusted-publisher
+  configuration that hasn't published within 2 days
+  (https://docs.npmjs.com/trusted-publishers), and release.yml's npm job only publishes a
+  version npm lacks. An agent can't: it needs the maintainer's npm login and 2FA. If a
+  configuration expires first, delete it and create it again. Check release.yml's npm job
+  publishes that version.
+
+  ```sh
   for p in crabx @kixel/crabx-linux-x64-gnu @kixel/crabx-linux-arm64-gnu \
     @kixel/crabx-darwin-x64 @kixel/crabx-darwin-arm64 @kixel/crabx-win32-x64 \
     @kixel/crabx-win32-arm64; do
