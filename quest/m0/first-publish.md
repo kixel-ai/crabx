@@ -40,9 +40,9 @@ and set again. The move redid the Pages and environment steps in `kixel-ai/crabx
 
 Decided 2026-11-24 (maintainer, /quest-run): the npm user `crabx`, the only member of the
 existing `crabx` npm organization, isn't the maintainer's (signed in as `kixelated`, who isn't
-a member), so ✅ the platform packages publish as `@kixelated/crabx-<platform>` under the
-maintainer's own scope (rejected: create and use an `@kixel-ai` organization; dispute
-`@crabx` with npm). The launcher stays the unscoped `crabx`.
+a member), so ✅ the platform packages publish as `@kixel/crabx-<platform>`, under the
+`kixel` npm organization the maintainer owns (rejected: the maintainer's user scope
+`@kixelated`; register and use an `@kixel-ai` organization; dispute `@crabx` with npm). The launcher stays the unscoped `crabx`.
 
 Done on 2026-11-24 (/quest-run, at the maintainer's request): crabx 0.1.0 is on crates.io,
 published from a clean detached checkout of `main` at `f1d6151`; crates.io trusts
@@ -63,9 +63,9 @@ six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
   ```sh
   npm login
   GH_TOKEN=$(gh auth token) python3 release.py publish 0.1.0
-  for p in crabx @kixelated/crabx-linux-x64-gnu @kixelated/crabx-linux-arm64-gnu \
-    @kixelated/crabx-darwin-x64 @kixelated/crabx-darwin-arm64 @kixelated/crabx-win32-x64 \
-    @kixelated/crabx-win32-arm64; do
+  for p in crabx @kixel/crabx-linux-x64-gnu @kixel/crabx-linux-arm64-gnu \
+    @kixel/crabx-darwin-x64 @kixel/crabx-darwin-arm64 @kixel/crabx-win32-x64 \
+    @kixel/crabx-win32-arm64; do
     npm trust github "$p" --file release.yml --repo kixel-ai/crabx --env npm --allow-publish --yes
     sleep 2
   done
