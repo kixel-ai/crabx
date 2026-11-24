@@ -10,7 +10,10 @@ on:
   pull_request:
     paths:
       - .github/workflows/e2e.yml
+      - .github/workflows/crabx-build.yml
       - tests/e2e.sh
+      - release.py
+      - install.ps1
   workflow_dispatch:
 
 permissions:
@@ -42,6 +45,8 @@ jobs:
 
   e2e:
     needs: [plan, build]
+    # One target's failed build leaves the others' archives to check.
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.builds) }}
@@ -71,8 +76,9 @@ jobs:
           EXE: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: tests/e2e.sh "archives/$ARCHIVE/crabx$EXE" "$TARGET"
       # The documented `irm | iex`, run on this checkout's installer.
+      # Independent of the build and the live crates, so it runs whatever they did.
       - name: install.ps1
-        if: runner.os == 'Windows'
+        if: ${{ !cancelled() && runner.os == 'Windows' }}
         shell: powershell
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-bin'

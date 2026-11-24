@@ -21,7 +21,11 @@ path=
 IFS=: read -ra dirs <<<"$PATH"
 for dir in "${dirs[@]}"; do
     for tool in cargo rustup rustc; do
-        if [ -e "$dir/$tool" ] || [ -e "$dir/$tool.exe" ]; then continue 2; fi
+        if [ -e "$dir/$tool" ] || [ -e "$dir/$tool.exe" ]; then
+            # Dropping a system directory, such as a distro cargo's /usr/bin, takes the script's own tools.
+            if [ -e "$dir/uname" ] || [ -e "$dir/uname.exe" ]; then fail "$dir holds both $tool and system tools; run where the toolchain has its own directory"; fi
+            continue 2
+        fi
     done
     path=${path:+$path:}$dir
 done
@@ -79,9 +83,9 @@ pinned() {
 # Pins keep a third party's new release from changing the result.
 cases() {
     # GitHub's release attestation and the author's own build provenance, under both trust roots.
-    pinned "$1" fnox@1.50.0 author "GitHub attestation sha256:"
+    pinned "$1" fnox@1.50.0 author "GitHub attestations (2) sha256:"
     # crabx's pipeline, the signer every crabx-built crate carries.
-    pinned "$1" crabx@0.1.0 author "GitHub attestation sha256:"
+    pinned "$1" crabx@0.1.0 author "GitHub attestations (1) sha256:"
     pinned "$1" hyperfine@2.0.0 author "author release (no published attestation)\""
     # Its author attaches no binaries; quickinstall builds it for every target crabx runs on.
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall

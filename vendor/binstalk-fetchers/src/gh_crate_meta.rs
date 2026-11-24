@@ -12,13 +12,12 @@ use either::Either;
 use itertools::Itertools;
 use leon::Template;
 use strum::IntoEnumIterator;
-use tokio::time::sleep;
 use tracing::{debug, info, trace, warn};
 use url::Url;
 
 use crate::fetchers::{
 	Data, FetchError, InvalidPkgFmtError, RepoInfo, SignaturePolicy, SignatureVerifier, TargetDataErased, common::*,
-	futures_resolver::FuturesResolver, gh_api_rate_limit_wait,
+	futures_resolver::FuturesResolver,
 };
 
 pub const FETCHER_GH_CRATE_META: &str = "GhCrateMeta";
@@ -42,7 +41,6 @@ struct Resolved {
 	archive_suffix: Option<String>,
 	repo: Option<String>,
 	subcrate: Option<String>,
-	is_repo_private: bool,
 	/// The alias from [`target_arch_aliases`] that `{ target-arch }` was
 	/// rendered as in `url`, if not the architecture's own name.
 	target_arch: Option<&'static str>,
@@ -143,7 +141,6 @@ impl GhCrateMeta {
 		pkg_url: &Template<'_>,
 		repo: Option<&str>,
 		subcrate: Option<&str>,
-		is_repo_private: bool,
 	) {
 		// `pkg_url` is one of the defaults unless the crate specified it.
 		let default_pkg_url = self
@@ -183,31 +180,18 @@ impl GhCrateMeta {
 					repo,
 					subcrate,
 					archive_suffix,
-					is_repo_private,
 					target_arch,
 					default_pkg_url,
 				};
 
+				// The API rules out missing assets in one call per release. A found one is still
+				// checked without the token, which the download won't carry either, so a private
+				// release reads as missing; a rate-limited or rejected query leaves it to that check.
 				if let Some(artifact) = gh_release_artifact {
-					loop {
-						match get_gh_release_artifact_url(gh_api_client.clone(), artifact.clone()).await {
-							Ok(Some(_)) => return Ok(Some(resolved)),
-							Ok(None) => return Ok(None),
-
-							// A public release asset can be checked with
-							// HEAD/GET instead, as `does_url_exist` does.
-							Err(GhApiError::RateLimit { .. } | GhApiError::Unauthorized) if !is_repo_private => {
-								break;
-							}
-							Err(GhApiError::RateLimit { retry_after }) => match gh_api_rate_limit_wait(retry_after) {
-								Some(wait) => sleep(wait).await,
-								None => {
-									return Err(GhApiError::RateLimit { retry_after }.into());
-								}
-							},
-
-							Err(err) => return Err(err.into()),
-						}
+					match get_gh_release_artifact_url(gh_api_client.clone(), artifact).await {
+						Ok(None) => return Ok(None),
+						Ok(Some(_)) | Err(GhApiError::RateLimit { .. } | GhApiError::Unauthorized) => (),
+						Err(err) => return Err(err.into()),
 					}
 				}
 
@@ -243,12 +227,6 @@ impl super::Fetcher for GhCrateMeta {
 
 			let repo = info.map(|info| &info.repo);
 			let subcrate = info.and_then(|info| info.subcrate.as_deref());
-			let is_repo_private = info.map(|info| info.is_private).unwrap_or_default();
-			// A private release downloads with the token from a URL the API names, so
-			// refuse it rather than send the token beyond GitHub's API.
-			if is_repo_private {
-				return Err(FetchError::PrivateRepository);
-			}
 
 			let mut pkg_fmt = self.target_data.meta.pkg_fmt;
 
@@ -364,14 +342,7 @@ impl super::Fetcher for GhCrateMeta {
 					.find(|pkg_url| template_to_string(pkg_url) == *hint_pkg_url)
 				{
 					let resolver = FuturesResolver::default();
-					this.launch_baseline_find_tasks(
-						&resolver,
-						*hint_pkg_fmt,
-						&pkg_url,
-						repo,
-						subcrate,
-						is_repo_private,
-					);
+					this.launch_baseline_find_tasks(&resolver, *hint_pkg_fmt, &pkg_url, repo, subcrate);
 
 					if let Some(resolved) = resolver.resolve().await {
 						debug!(?resolved, "Found package with the pkg-url of the last install");
@@ -394,7 +365,7 @@ impl super::Fetcher for GhCrateMeta {
 				//             basically cartesian product.
 				//             |
 				for pkg_fmt in pkg_fmts.clone() {
-					this.launch_baseline_find_tasks(&resolver, pkg_fmt, &pkg_url, repo, subcrate, is_repo_private);
+					this.launch_baseline_find_tasks(&resolver, pkg_fmt, &pkg_url, repo, subcrate);
 				}
 			}
 

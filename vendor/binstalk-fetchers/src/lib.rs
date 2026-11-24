@@ -1,15 +1,15 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-use std::{borrow::Cow, path::Path, sync::Arc, time::Duration};
+use std::{borrow::Cow, path::Path, sync::Arc};
 
 use binstalk_downloader::{download::DownloadError, remote::Error as RemoteError};
-use binstalk_git_repo_api::gh_api_client::{GhApiError, GhRepo, RepoInfo as GhRepoInfo};
+use binstalk_git_repo_api::gh_api_client::GhApiError;
 use binstalk_types::{
 	cargo_toml_binstall::{SigningAlgorithm, Strategy},
 	crate_info::PkgUrlHint,
 };
 use thiserror::Error as ThisError;
-use tokio::{sync::OnceCell, task::JoinError, time::sleep};
+use tokio::{sync::OnceCell, task::JoinError};
 pub use url::ParseError as UrlParseError;
 
 mod gh_crate_meta;
@@ -27,23 +27,6 @@ use signing::*;
 mod futures_resolver;
 
 use gh_crate_meta::hosting::RepositoryHost;
-
-static DEFAULT_GH_API_RETRY_DURATION: Duration = Duration::from_secs(1);
-
-/// Longest GitHub API rate-limit wait worth sleeping through.
-///
-/// A primary rate limit resets at most hourly, far beyond
-/// `--maximum-resolution-timeout`, so sleeping through it only stalls the
-/// resolution until it is timed out. Short waits, e.g. a secondary rate
-/// limit's `Retry-After`, are still honoured.
-const MAX_GH_API_RATE_LIMIT_WAIT: Duration = Duration::from_secs(5);
-
-/// How long to sleep before retrying a rate-limited GitHub API call, or `None`
-/// if the wait is too long and the caller should give up on the API instead.
-fn gh_api_rate_limit_wait(retry_after: Option<Duration>) -> Option<Duration> {
-	let wait = retry_after.unwrap_or(DEFAULT_GH_API_RETRY_DURATION);
-	(wait <= MAX_GH_API_RATE_LIMIT_WAIT).then_some(wait)
-}
 
 #[derive(Debug, ThisError)]
 #[error("Invalid pkg-url {pkg_url} for {crate_name}@{version} on {target}: {reason}")]
@@ -89,9 +72,6 @@ pub enum FetchError {
 
 	#[error("Failed to wait for task: {0}")]
 	TaskJoinError(#[from] JoinError),
-
-	#[error("crabx does not install releases from private GitHub repositories; use --build to compile the crate")]
-	PrivateRepository,
 }
 
 impl From<RemoteError> for FetchError {
@@ -208,7 +188,6 @@ struct RepoInfo {
 	repo: Url,
 	repository_host: RepositoryHost,
 	subcrate: Option<CompactString>,
-	is_private: bool,
 }
 
 /// What to do about package signatures
@@ -266,20 +245,6 @@ impl Data {
 
 	#[instrument(skip(client))]
 	async fn get_repo_info(&self, client: &GhApiClient) -> Result<Option<&RepoInfo>, FetchError> {
-		async fn gh_get_repo_info(client: &GhApiClient, gh_repo: &GhRepo) -> Result<GhRepoInfo, GhApiError> {
-			loop {
-				match client.get_repo_info(gh_repo).await {
-					Ok(Some(gh_repo_info)) => break Ok(gh_repo_info),
-					Ok(None) => break Err(GhApiError::NotFound),
-					Err(GhApiError::RateLimit { retry_after }) => match gh_api_rate_limit_wait(retry_after) {
-						Some(wait) => sleep(wait).await,
-						None => break Err(GhApiError::RateLimit { retry_after }),
-					},
-					Err(err) => break Err(err),
-				}
-			}
-		}
-
 		async fn get_repo_info_inner(repo: &str, client: &GhApiClient) -> Result<RepoInfo, FetchError> {
 			let repo = Url::parse(repo)?;
 			let mut repo = client
@@ -291,37 +256,17 @@ impl Data {
 
 			let subcrate = RepoInfo::detect_subcrate(&mut repo, repository_host);
 
-			if let Some(repo) = repo.as_str().strip_suffix(".git").and_then(|s| Url::parse(s).ok()) {
-				let repository_host = RepositoryHost::guess_git_hosting_services(&repo);
-				match GhRepo::try_extract_from_url(&repo) {
-					Some(gh_repo) if client.has_gh_token() => {
-						if let Ok(gh_repo_info) = gh_get_repo_info(client, &gh_repo).await {
-							return Ok(RepoInfo {
-								subcrate,
-								repository_host,
-								repo,
-								is_private: gh_repo_info.is_private(),
-							});
-						}
-					}
-					_ => {
-						if let Ok(repo) = client.remote_client().get_redirected_final_url(repo).await {
-							return Ok(RepoInfo {
-								subcrate,
-								repository_host: RepositoryHost::guess_git_hosting_services(&repo),
-								repo,
-								is_private: false,
-							});
-						}
-					}
-				}
+			if let Some(repo) = repo.as_str().strip_suffix(".git").and_then(|s| Url::parse(s).ok())
+				&& let Ok(repo) = client.remote_client().get_redirected_final_url(repo).await
+			{
+				return Ok(RepoInfo {
+					subcrate,
+					repository_host: RepositoryHost::guess_git_hosting_services(&repo),
+					repo,
+				});
 			}
 
 			Ok(RepoInfo {
-				is_private: match GhRepo::try_extract_from_url(&repo) {
-					Some(gh_repo) if client.has_gh_token() => gh_get_repo_info(client, &gh_repo).await?.is_private(),
-					_ => false,
-				},
 				subcrate,
 				repo,
 				repository_host,

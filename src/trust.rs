@@ -53,7 +53,7 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 	let mut url = reqwest::Url::parse(&format!("{endpoint}?per_page=1"))?;
 	let token = network::github_token()?;
 	let mut first_page = true;
-	let mut verified = false;
+	let mut verified = 0;
 	let mut roots: [Option<TrustedRoot>; 2] = [None, None];
 	loop {
 		let mut request = client.get(url.clone()).header("Accept", "application/vnd.github+json");
@@ -69,6 +69,10 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 		if response.status() == reqwest::StatusCode::NOT_FOUND && first_page {
 			return Ok("author release (no published attestation)".into());
 		}
+		ensure!(
+			response.status() != reqwest::StatusCode::UNAUTHORIZED || token.is_none(),
+			"GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it"
+		);
 		let response = response.error_for_status().context("query GitHub attestations")?;
 		let next = response.headers().get("link").map(|v| v.to_str()).transpose()?;
 		let next = next_page(next, &url, &repo, &digest)?;
@@ -116,13 +120,13 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 				asset: &receipt.url,
 			},
 		)?;
-		verified = true;
+		verified += 1;
 		let Some(next) = next else { break };
 		url = next;
 		first_page = false;
 	}
-	if verified {
-		Ok(format!("GitHub attestation sha256:{digest}"))
+	if verified > 0 {
+		Ok(format!("GitHub attestations ({verified}) sha256:{digest}"))
 	} else {
 		Ok("author release (no published attestation)".into())
 	}

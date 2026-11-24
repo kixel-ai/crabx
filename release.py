@@ -1,4 +1,4 @@
-"""Publish crabx to crates.io and npm from release.yml, and pack its npm packages."""
+"""Publish crabx to crates.io and npm from release.yml, pack its npm packages, and plan e2e.yml's nightly build."""
 
 import importlib.util
 import json
