@@ -18,7 +18,7 @@ Decided with the maintainer on 2026-11-23, in /quest-plan:
   repository; a Cloudflare redirect rule. The maintainer accepted that the install lines
   in crabx 0.1.0's published crates.io README will break.
 - ✅ Content for both audiences:
-  - a hero with `npx crabx <crate>` and the installers, in macOS/Linux and Windows tabs;
+  - a hero with `crabx <crate>` and the installers, `npm install -g @kixel/crabx` among them, in macOS/Linux and Windows tabs;
   - a terminal showing a real run, such as `crabx moq-relay --help`;
   - a short section on trust and attestations;
   - a section for crate authors on `crabx init`.

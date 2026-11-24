@@ -112,9 +112,13 @@ def crate():
     output(publish="true", builds={"include": [{**item, "target": target, "os": runner} for target, runner in targets()]})
 
 
+# npm refuses the unscoped `crabx` as too similar to `rax`.
+LAUNCHER_NAME = "@kixel/crabx"
+
+
 def package_names():
     """Each npm package crabx publishes, in publish order: the launcher's dependencies first."""
-    return [platform_name(target) for target in NPM_TARGETS] + ["crabx"]
+    return [platform_name(target) for target in NPM_TARGETS] + [LAUNCHER_NAME]
 
 
 def platform_name(target):
@@ -197,12 +201,12 @@ def pack(version, archives, out):
         if platform == "linux":
             fields["libc"] = ["glibc"]
         write(directory, manifest(name, version, f"The crabx binary for {target}", **fields, preferUnplugged=True))
-    directory = out / "crabx"
+    directory = out / LAUNCHER_NAME
     directory.mkdir()
     write(
         directory,
         manifest(
-            "crabx",
+            LAUNCHER_NAME,
             version,
             "Run a Rust CLI from its author's release, without compiling",
             bin={"crabx": "crabx.js"},

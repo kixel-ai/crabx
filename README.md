@@ -3,15 +3,15 @@
 Run a crates.io CLI from its author's release assets:
 
 ```sh
-npx crabx moq-cli --help
-bunx crabx moq-cli --help
+crabx moq-cli --help
 ```
 
-Or install crabx itself from its release:
+Install crabx once, from its release:
 
 ```sh
 curl -fsSL https://crabx.kixel.ai/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.ai/install.ps1 | iex"
+npm install -g @kixel/crabx
 cargo install crabx
 ```
 
@@ -99,7 +99,7 @@ Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
 to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the newest stable version's
-binaries to npm as `crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
+binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
 attestation first. Every step skips what is already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
 `.github/workflows/installers.yml` serves main's `install.sh` and `install.ps1` at `crabx.kixel.ai`
