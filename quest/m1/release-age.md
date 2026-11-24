@@ -33,7 +33,8 @@ unpinned run picks its version from the cached index, the current delay and
 the current time, and the daily background fetch is the only fetch (rejected:
 extra fetches when a release turns eligible or when a longer delay applies,
 whose timing kept raising review findings). A release becomes runnable on the
-first daily fetch after it turns a day old, 24 to 48 hours after publishing.
+first run after it turns a day old by the cached index, typically 24 to 48
+hours after publishing, since that index is up to a day old.
 
 Invariants the implementation keeps, each with a test that sets the clock
 rather than reading it:
@@ -41,7 +42,9 @@ rather than reading it:
 - A warm unpinned run executes the newest installed version that the
   current policy allows, at the moment it runs, by the newest index data
   crabx holds; the background refresh installs the newest eligible version
-  for the next run. The cached `latest` pointer is a hint, not the answer,
+  for the next run. Each run evaluates the cached index with its own delay,
+  and if that names a newer eligible version than any installed, starts that
+  background install even when no index fetch is due. The cached `latest` pointer is a hint, not the answer,
   since 0.1.0's refresh, a `0s` run or a `7d` run may have set it.
 - A cold run picks an exact eligible version before installing, on both
   paths: the first resolve (today binstalk's `VersionReq::STAR` in
@@ -51,10 +54,13 @@ rather than reading it:
   yanked. Nothing fetches early to catch a yank or a release turning
   eligible: the daily fetch sees both within a day, and a run waits on the
   network only when nothing cached is eligible.
-- The index is fetched at most once a day per crate, in the background, and
+- The freshness check, the index fetch that looks for new versions, runs at
+  most once a day per crate, in the background, and
   a failed fetch backs off as today (30 seconds, doubling to 30 minutes). A
   conditional request is sent only when the index data its validator stands
-  for is cached, which 0.1.0's refresh state doesn't hold.
+  for is cached, which 0.1.0's refresh state doesn't hold. Installing a
+  chosen version makes whatever requests binstalk or Cargo need, such as
+  `fetch_crate_matched`'s own index read; the README says so.
 - The detached refresh gets the effective policy explicitly.
 - 0.1.0 still runs on a cache 0.2.0 has used: new state goes in new files,
   since 0.1.0 rejects unknown fields in its refresh state.

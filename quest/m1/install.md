@@ -58,8 +58,12 @@ Recommendations:
 - If crabx is started under a name other than `crabx` that has no record,
   that's an error. Started under a recorded name, crabx passes every option
   and argument through to the crate.
-- Resolve the crate (and its attestation) at install time, so a typo or a
-  crate with no usable release fails at once rather than on its first run.
+- Resolve the crate (and its attestation) and its binary at install time, so
+  a typo, a crate with no usable release, or a crate whose binary needs
+  `--bin` fails at once rather than on its first run. `crabx install` takes
+  `--bin` and records it with the launcher.
+- Key each pin and binary choice by the launcher's path, so the same crate
+  installed in two directories at different pins keeps both.
 - `install` is a crate on crates.io too; as with `init`, `crabx install@VERSION`
   runs it.
 - Uninstalling means deleting the launcher; leave out an `uninstall` command
@@ -70,7 +74,9 @@ Recommendations:
   read-only PR CI install from those packages, run `crabx install <crate>`,
   and run the crate by name from a new shell, on all three OSes.
   [The release](/quest/m1/release-0.2.md) runs the registry command once it
-  publishes.
+  publishes, and the nightly e2e then installs from the published npm
+  version and runs the crate by name from a new shell, so a packaging or
+  PATH regression in the registry's package fails a run.
 
 ## Required
 

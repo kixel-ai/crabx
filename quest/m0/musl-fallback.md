@@ -24,8 +24,12 @@ host, so this keeps the glibc 2.28 floor. Verify with
 `crabx token-max --version` once token-max 0.1.0 is out, since that release
 carries a GitHub attestation crabx checks.
 
-Order the author-release candidates target first: today `install::fetch`
-tries every target under the crate's name before any under its single
-binary's name, so with musl added, a musl archive named for the crate would
-beat a gnu archive named for the binary. Try both gnu names before either
-musl one.
+Today `install::fetch` tries every target under the crate's name before any
+under its single binary's name, so with musl added, a musl archive named for
+the crate would beat a gnu archive named for the binary. Try both gnu names
+before either musl one, and leave every other platform's order alone, such
+as macOS preferring a crate-named universal archive.
+
+Cover it in `.github/workflows/e2e.yml`'s Linux runs with a pinned
+`crabx token-max@0.1.0 --version`, a musl-only release with an attestation,
+so a regression to gnu-only fails the nightly.
