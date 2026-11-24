@@ -1,5 +1,5 @@
-# m2: after m1
+# m2: the next milestone
 
 ## Goal
 
-The work that waits for m1, starting with the next run of each recurring audit.
+The work after m1, starting with the next round of recurring audits.

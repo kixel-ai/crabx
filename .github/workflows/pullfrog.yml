@@ -32,7 +32,7 @@ jobs:
       # Edited: what the review needs to run the repository's checks and
       # tests. The environment admits only main, so the dev shell comes from
       # the default branch, not a pull request's head.
-      - uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: false
           # The agent's shell can reach the daemon and read /etc/nix and
@@ -62,7 +62,7 @@ jobs:
             exit 1
           fi
       - name: Run agent
-        uses: pullfrog/pullfrog@44b58efe7fe431053c58aafa05e51e190f969685 # v0.1.130
+        uses: pullfrog/pullfrog@75f7ee99ad40922d195eff131f025f4ba79035ff # v0.1.131
         with:
           prompt: ${{ inputs.prompt }}
         # No provider keys from this repository: model access is configured

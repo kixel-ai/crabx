@@ -38,39 +38,51 @@ The installers deployed and HTTPS is enforced, so `curl -fsSL https://crabx.kixe
 prints the installer. GitHub issued the certificate only after the custom domain was removed
 and set again. The move redid the Pages and environment steps in `kixel-ai/crabx`.
 
+Decided 2026-11-24 (maintainer, /quest-run): the npm user `crabx`, the only member of the
+existing `crabx` npm organization, isn't the maintainer's (signed in as `kixelated`, who isn't
+a member), so ✅ the platform packages publish as `@kixel/crabx-<platform>`, under the
+`kixel` npm organization the maintainer owns (rejected: the maintainer's user scope
+`@kixelated`; register and use an `@kixel-ai` organization; dispute `@crabx` with npm). The launcher stays the unscoped `crabx`.
+
+Done on 2026-11-24 (/quest-run, at the maintainer's request): crabx 0.1.0 is on crates.io,
+published from a clean detached checkout of `main` at `f1d6151`; crates.io trusts
+`kixel-ai/crabx`'s `release.yml` in the `crates-io` environment, added through the
+crates.io API with the maintainer's token; and
+[release.yml's run](https://github.com/kixel-ai/crabx/actions/runs/45302449030) attached all
+six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
+
 ## Waiting
 
-- Maintainer: confirm the npm user `crabx` is yours. The `crabx` npm organization already
-  exists, and npm lists that user as its only member and owner
-  (`https://registry.npmjs.org/-/org/crabx/user`); if it is someone else's, the `@crabx/*`
-  platform packages need another scope. An agent can't tell: neither agent Chrome is signed
-  in to npm.
-- Maintainer: publish crabx 0.1.0 to crates.io from a clean checkout of `main` that
-  includes release.yml, since the pipeline builds only versions published after it was
-  added. An agent can't: publishing is public and permanent and needs the maintainer's
-  crates.io token. Check `https://crates.io/crates/crabx`.
-
-  ```sh
-  git -C <crabx> switch --detach origin/main && cd <crabx>
-  cargo publish --locked
-  ```
-
-- Maintainer: on crates.io, crabx → Settings → Trusted Publishing → add GitHub with owner
-  `kixel-ai`, repository `crabx`, workflow `release.yml`, environment `crates-io`. After
-  release.yml first publishes a version, turn on "Require trusted publishing". An agent
-  can't: it needs the crate owner's session.
-- Maintainer: once `gh workflow run release.yml -R kixel-ai/crabx` has attached all six
-  archives to `crabx-v0.1.0` (`gh release view crabx-v0.1.0 -R kixel-ai/crabx`), publish
-  the npm packages, which verifies each archive's attestation first, then trust the
-  workflow for each (npm 11.15.0 or later). An agent can't: both need the maintainer's npm
-  login and 2FA. Check `npx crabx --version` prints `crabx 0.1.0`.
+- Maintainer: publish the npm packages, which verifies each archive's attestation first. An
+  agent can't: it needs the maintainer's npm login and 2FA. Run it from a checkout of `main`
+  that has [#14](https://github.com/kixel-ai/crabx/pull/14), since `release.py` names the
+  packages and copies `npm/crabx.js` from the checkout; the one at `f1d6151` still names
+  `@crabx/*`. Check `npx crabx --version` prints `crabx 0.1.0`.
 
   ```sh
   npm login
   GH_TOKEN=$(gh auth token) python3 release.py publish 0.1.0
-  for p in crabx @crabx/linux-x64-gnu @crabx/linux-arm64-gnu @crabx/darwin-x64 \
-    @crabx/darwin-arm64 @crabx/win32-x64 @crabx/win32-arm64; do
+  ```
+
+- Maintainer: when the next version's release PR is about to land, trust release.yml for
+  each npm package (npm 11.15.0 or later), not before: npm expires a new trusted-publisher
+  configuration that hasn't published within 2 days
+  (https://docs.npmjs.com/trusted-publishers), and release.yml's npm job only publishes a
+  version npm lacks. An agent can't: it needs the maintainer's npm login and 2FA. If a
+  configuration expires first, delete it and create it again. Check release.yml's npm job
+  publishes that version.
+
+  ```sh
+  for p in crabx @kixel/crabx-linux-x64-gnu @kixel/crabx-linux-arm64-gnu \
+    @kixel/crabx-darwin-x64 @kixel/crabx-darwin-arm64 @kixel/crabx-win32-x64 \
+    @kixel/crabx-win32-arm64; do
     npm trust github "$p" --file release.yml --repo kixel-ai/crabx --env npm --allow-publish --yes
     sleep 2
   done
   ```
+
+- Maintainer: once release.yml has published a crates.io version, turn on crabx's "Require
+  trusted publishing" (Settings → Trusted Publishing), so a leaked token can't publish. An
+  agent can do this through the crates.io API with the maintainer's token, but it waits for
+  proof that the workflow's publish works. Check `trustpub_only` is `true` at
+  `https://crates.io/api/v1/crates/crabx`.

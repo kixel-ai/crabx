@@ -119,7 +119,7 @@ def package_names():
 
 def platform_name(target):
     platform, arch = NPM_TARGETS[target]
-    return f"@crabx/{platform}-{arch}{'-gnu' if platform == 'linux' else ''}"
+    return f"@kixel/crabx-{platform}-{arch}{'-gnu' if platform == 'linux' else ''}"
 
 
 def missing(version):

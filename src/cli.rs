@@ -62,7 +62,7 @@ impl Spec {
 	}
 }
 
-pub fn valid_name(name: &str) -> bool {
+fn valid_name(name: &str) -> bool {
 	!name.is_empty()
 		&& name.len() <= 64
 		&& name.as_bytes()[0].is_ascii_alphabetic()

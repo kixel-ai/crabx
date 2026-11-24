@@ -52,7 +52,7 @@ jobs:
       - name: Python
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: '3.13'
+          python-version: '3.15'
       - name: Rust target
         env:
           TARGET: ${{ matrix.target }}
@@ -60,7 +60,7 @@ jobs:
         working-directory: source/${{ matrix.path }}
       - name: Linux linker and glibc 2.28 sysroot
         if: runner.os == 'Linux'
-        run: python3 -m pip install cargo-zigbuild==0.23.4 ziglang==0.17.1
+        run: python3 -m pip install -r .crabx/pipeline/requirements.txt
       - name: Build every binary and archive
         env:
           ITEM: ${{ toJSON(matrix) }}
