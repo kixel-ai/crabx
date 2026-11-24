@@ -76,3 +76,9 @@ crabx runs them unverified, as it does any release without one; the decision abo
 they were attested. As of moq-relay 0.17.18 and moq-cli 0.14.18, `gh attestation verify -R
 moq-dev/moq` returns 404 for their x86_64 Linux archives. The switch would also attest
 them.
+
+Decided 2026-11-24 (maintainer, [kixel-ai/crabx#24](https://github.com/kixel-ai/crabx/pull/24#issuecomment-7141564623)):
+✅ moq's releases get attested by keeping moq's own release workflow and adding
+`actions/attest-build-provenance` to it (rejected: reopening the pipeline switch; accepting
+unattested moq releases), a small moq-only change that gives crabx's first consumer
+verified provenance. That change is moq-dev/moq's work, planned in its own quest tree.
