@@ -2,5 +2,4 @@
 
 ## Goal
 
-The work after crabx's first publish, starting with the GitHub App and moq's
-adoption.
+The work after crabx's first publish, starting with the GitHub App.
