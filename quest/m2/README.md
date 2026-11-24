@@ -1,5 +1,5 @@
-# m2: after m1
+# m2: the next milestone
 
 ## Goal
 
-The work that follows the GitHub App: the next round of recurring audits.
+The work after m1, starting with the next round of recurring audits.
