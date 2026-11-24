@@ -50,6 +50,9 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
 - ✅ An unpinned run is stale-while-revalidate: it runs the cached latest and checks
   crates.io's sparse index in the background for the next run. Once cached, a pinned version
   runs with no network. Rejected: a check every run; a 24-hour TTL.
+  Superseded 2026-11-24 (maintainer, /quest-plan in kixel-ai/token-max): the
+  background check runs at most daily, and unpinned runs skip versions under 24
+  hours old; see [the release-age quest](/quest/m1/release-age.md).
 - ✅ The name `crabx`, free on crates.io, following npx, bunx, and uvx; npm's package is
   `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.

@@ -1,4 +1,4 @@
-# [M] Wait 24 hours before running a new release
+# [M] Wait 24 hours before running a new release, and check daily
 
 ## Goal
 
@@ -7,6 +7,8 @@ An unpinned `crabx <crate>`, and an unpinned launcher from `crabx install
 hours ago, by the `pubtime` the crates.io index records. A pinned
 `crate@version` ignores the delay. `--minimum-release-age <duration>` or
 `CRABX_MINIMUM_RELEASE_AGE` changes the delay, and `0s` turns it off.
+An unpinned run still runs the cached version at once and refreshes in the
+background, but checks the index for a crate at most once a day.
 
 ## Plan
 
@@ -17,7 +19,22 @@ default with a flag and an environment variable to override it, like mise's
 release is usually yanked within hours, so a day's delay keeps most of them
 from ever running.
 
+Decided 2026-11-24 (maintainer, /quest-plan in kixel-ai/token-max): ✅ the
+background refresh checks at most once a day per crate and trust policy,
+still stale-while-revalidate (rejected: keeping a check on every unpinned
+run). This supersedes the root quest's 2026-11-12 rejection of a 24-hour
+TTL: with the release-age delay a release already arrives a day late, and a
+daily check spares crates.io a request on most runs. Today that request goes
+to index.crates.io, a CDN; GitHub is contacted only to install a new version.
+
 Recommendations:
+
+- Store the last check's time in the refresh state and skip the refresh
+  until a day has passed. Also refresh as soon as a version the last check
+  saw, but which was too new, reaches the delay, so that version doesn't wait
+  another full day.
+- Keep the failure backoff as it is: a failed refresh retries after 30
+  seconds, doubling to 30 minutes, and doesn't wait a day.
 
 - Apply it on both paths that pick a version: the background refresh in
   `network.rs`, which already filters yanked and prerelease versions, and the
