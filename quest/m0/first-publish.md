@@ -55,7 +55,10 @@ six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
 
 - Maintainer: publish the npm packages, which verifies each archive's attestation first,
   then trust the workflow for each (npm 11.15.0 or later). An agent can't: both need the
-  maintainer's npm login and 2FA. Check `npx crabx --version` prints `crabx 0.1.0`.
+  maintainer's npm login and 2FA. Run it from a checkout of `main` that has
+  [#14](https://github.com/kixel-ai/crabx/pull/14), since `release.py` names the packages and
+  copies `npm/crabx.js` from the checkout; the one at `f1d6151` still names `@crabx/*`. Check
+  `npx crabx --version` prints `crabx 0.1.0`.
 
   ```sh
   npm login
