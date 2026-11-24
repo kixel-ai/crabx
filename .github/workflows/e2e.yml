@@ -1,0 +1,94 @@
+name: End to end
+
+# The live checks the merge gate can't run: crabx's release build of this commit against the
+# real crates.io, GitHub, and Sigstore on every target, and its tests and Windows installer
+# off Linux. Nightly, outside the gate; a pull request that changes this check runs it too.
+on:
+  schedule:
+    # After release.yml's nightly run, so a new release is checked the same morning.
+    - cron: '17 9 * * *'
+  pull_request:
+    paths:
+      - .github/workflows/e2e.yml
+      - tests/e2e.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      builds: ${{ steps.plan.outputs.builds }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: plan
+        run: python3 release.py nightly
+
+  # The pipeline's build, as a release ships it.
+  build:
+    needs: plan
+    uses: ./.github/workflows/crabx-build.yml
+    with:
+      builds: ${{ needs.plan.outputs.builds }}
+
+  e2e:
+    needs: [plan, build]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.builds) }}
+    # The pipeline cross-builds Intel macOS on Arm; run it on Intel rather than Rosetta.
+    runs-on: ${{ matrix.target == 'x86_64-apple-darwin' && 'macos-15-intel' || matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      ARCHIVE: crabx-${{ matrix.target }}-v${{ needs.plan.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: crabx-crabx@${{ needs.plan.outputs.version }}@${{ matrix.target }}
+          path: archives
+      - run: tar -xzf "archives/$ARCHIVE.tgz" -C archives
+      - name: Live crates
+        env:
+          # Read-only; it raises the attestation API's rate limit on shared runner addresses.
+          GITHUB_TOKEN: ${{ github.token }}
+          TARGET: ${{ matrix.target }}
+          EXE: ${{ runner.os == 'Windows' && '.exe' || '' }}
+        run: tests/e2e.sh "archives/$ARCHIVE/crabx$EXE" "$TARGET"
+      # The documented `irm | iex`, run on this checkout's installer.
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-bin'
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
+          & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # rustup installs rust-toolchain.toml's pinned toolchain on first use.
+      - run: cargo test --locked
