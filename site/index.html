@@ -26,7 +26,7 @@
 <body>
 <div class="glow" aria-hidden="true"></div>
 <header class="top">
-  <!-- site.yml copies assets/logo/logo-on-dark.svg here as logo.svg. -->
+  <!-- logo.svg links to assets/logo/logo-on-dark.svg. -->
   <img class="logo" src="logo.svg" alt="crabx" width="230" height="66">
   <!-- Icons from Simple Icons 16.38.1 (CC0), inline so the page loads nothing from another origin. -->
   <div class="me">
@@ -58,6 +58,7 @@
       <pre class="cmd windows"><code><span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "<span class="tk-bin">irm</span> <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span></code></pre>
       <button class="copy" type="button" hidden>Copy</button>
     </div>
+    <p class="also unix">Then add <code>~/.local/bin</code> to your PATH if the installer says it's missing.</p>
     <p class="also windows">Then open a new terminal, which picks up crabx on your Path.</p>
     <p class="also">Or with npm or Cargo, then run any crate:</p>
     <div class="run more">
@@ -113,8 +114,8 @@ Flags:
       <span class="num">02</span>
       <h3>Verify</h3>
       <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's
-      trust root, and requires the signer to be the crate's repository or crabx's
-      pipeline. <strong>A bad attestation is an error, never a warning.</strong> A release
+      trust root, and requires the signer to be the crate's repository, crabx's
+      pipeline, or GitHub's release service for that repository's tag. <strong>A bad attestation is an error, never a warning.</strong> A release
       with none, such as moq-relay's above, runs unverified.</p>
     </li>
     <li>
@@ -131,8 +132,8 @@ Flags:
   <h2 id="authors">Ship your crate's binaries</h2>
   <p class="lede">Publishing to crates.io is enough. Run <code>crabx init</code> once in your
   crate's repository: it writes one workflow that calls crabx's release pipeline, which
-  builds every crates.io version you publish after you commit that workflow, for all six platforms, and
-  attaches attested archives to its GitHub release. The repository must be public and
+  builds every crates.io version you publish after you commit that workflow, for all six
+  platforms, and adds the archives its release lacks, each attested. The repository must be public and
   be the one your crate's <code>repository</code> field names on crates.io.</p>
   <div class="run more">
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>

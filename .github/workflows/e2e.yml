@@ -110,10 +110,17 @@ jobs:
           Get-Content -Raw install.ps1 | Invoke-Expression
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+      - name: Deployed installer
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: powershell
+        run: |
+          $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
+          powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
+          if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed: $LASTEXITCODE" }
+          & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 
-  # The documented installer URLs and the page are served over HTTPS at crabx.kixel.me. Each
-  # file is matched by its usage line, not bytes: a failed deploy already fails site.yml, and a
-  # byte comparison races deploys. Not on pull requests, whose installers aren't deployed.
+  # The documented `curl | sh`, from crabx.kixel.me, and the page there. Not on pull requests,
+  # whose installers aren't deployed; install-ps1 runs the documented `irm | iex` the same way.
   site:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
@@ -123,9 +130,8 @@ jobs:
         shell: bash
     steps:
       - run: |
-          for url in https://crabx.kixel.me/install.sh https://crabx.kixel.me/install.ps1; do
-            curl -fsSL --proto '=https' "$url" -o served
-            grep -qF "$url" served
-          done
-          curl -fsSL --proto '=https' https://crabx.kixel.me/ -o served
-          grep -qF '<title>crabx' served
+          export CRABX_INSTALL_DIR="$RUNNER_TEMP/crabx-bin"
+          curl -fsSL --proto '=https' https://crabx.kixel.me/install.sh | sh
+          "$CRABX_INSTALL_DIR/crabx" --version
+          curl -fsS --proto '=https' https://crabx.kixel.me/ -o index.html
+          grep -qF '<title>crabx' index.html

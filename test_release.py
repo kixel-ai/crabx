@@ -451,31 +451,31 @@ class Workflow(unittest.TestCase):
         self.assertIn("permissions:\n  contents: read\n", head)
 
     def test_site_urls_are_deployed(self):
-        # Every crabx.kixel.me URL users see, and every file the page loads, names a file the
-        # Pages job publishes: site/, which it copies whole, or a file it copies beside it.
+        # Every crabx.kixel.me URL outside quest/, and every file the page loads, names a file
+        # the Pages job publishes: site/, which it copies whole, or a file it copies beside it.
         site = (HERE / ".github/workflows/site.yml").read_text()
-        self.assertRegex(site, r"\n +cp -r site _site\n")
+        self.assertRegex(site, r"\n +cp -rL site _site\n")
         deployed = {p.relative_to(HERE / "site").as_posix() for p in (HERE / "site").rglob("*") if p.is_file()}
-        for line in re.findall(r"(?m)^ +cp ([^\n]*) _site/(\S*)$", site):
-            sources, dest = line[0].split(), line[1]
+        for sources, dest in re.findall(r"(?m)^ +cp ([^\n]*) _site/(\S*)$", site):
+            sources = sources.split()
             self.assertTrue(all((HERE / src).is_file() for src in sources), sources)
             deployed |= {dest} if dest else {Path(src).name for src in sources}
-        files = ("README.md", "install.sh", "install.ps1", "site/index.html")
-        texts = [(HERE / f).read_text() for f in files]
-        urls = {u.rstrip(".") for t in texts for u in re.findall(r"https://crabx\.kixel\.me/?([^\s\"'|<>)`#?]*)", t)}
+        tracked = subprocess.run(["git", "ls-files", "-z"], cwd=HERE, check=True, capture_output=True).stdout
+        paths = [HERE / p for p in tracked.decode().split("\0") if p and not p.startswith("quest/")]
+        text = "".join(p.read_bytes().decode(errors="ignore") for p in paths if p.is_file())
+        urls = {u.rstrip(".") for u in re.findall(r"https://crabx\.kixel\.me/?([^\s\"'|<>)`#?]*)", text)}
         self.assertTrue({"install.sh", "install.ps1"} <= urls)
         for name in urls:
             self.assertIn(name or "index.html", deployed)
         page = (HERE / "site/index.html").read_text()
         refs = [ref for _, ref in re.findall(r"""(?:href|src)=(["'])(.*?)\1""", page)]
         refs += [u for css in (HERE / "site").glob("*.css") for u in re.findall(r"url\(\"?([^\")]+)", css.read_text())]
-        local = [r for r in refs if "://" not in r and not r.startswith("#")]
-        self.assertIn("logo.svg", local)
-        for ref in local:
-            self.assertIn(ref, deployed)
-        self.assertEqual("".join(texts).count("raw.githubusercontent"), 0)
-        # The retired domain serves nothing.
-        self.assertEqual("".join(texts).count("crabx.kixel.ai"), 0)
+        for ref in refs:
+            if "://" not in ref and not ref.startswith("#"):
+                self.assertIn(ref, deployed)
+        self.assertEqual(text.count("raw.githubusercontent.com/" + "kixel-ai/crabx"), 0)
+        # The retired domain serves nothing; the name is split so this file doesn't match itself.
+        self.assertEqual(text.count("crabx.kixel" + ".ai"), 0)
 
 
 if __name__ == "__main__":

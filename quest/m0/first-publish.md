@@ -23,13 +23,10 @@ Decided by the maintainer on 2026-11-22, in
 for crabx's move from `kixel-ai/rust2` to this repository, so both registries trust this
 repository's `release.yml` from the first version.
 
-The installers are served at `crabx.kixel.me` by GitHub Pages, beside crabx's site:
-`.github/workflows/site.yml` deploys `site/`, `install.sh`, and `install.ps1` whenever main
-changes them. A Cloudflare redirect to the raw files was rejected because it lives outside
-the repository and serves whatever path layout main happens to have.
+GitHub Pages serves the installers; a Cloudflare redirect to the raw files was rejected
+because it lives outside the repository and serves whatever path layout main happens to have.
 
-Done on 2026-11-18 (/quest-complete, with the maintainer's go-ahead), at the domain the site
-later replaced: `kixel.ai` is verified
+Done on 2026-11-18 (/quest-complete, with the maintainer's go-ahead): `kixel.ai` is verified
 for Pages in the kixel-ai organization; Pages builds from Actions at `crabx.kixel.ai`;
 Cloudflare has the challenge TXT record and the `crabx` CNAME to `kixel-ai.github.io`, DNS
 only; and only `main` may deploy to the `github-pages`, `crates-io`, and `npm` environments.

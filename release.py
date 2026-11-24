@@ -190,6 +190,7 @@ def manifest(name, version, description, **fields):
         "version": version,
         "description": description,
         "repository": {"type": "git", "url": f"git+https://github.com/{REPO}.git"},
+        "homepage": "https://crabx.kixel.me",
         "license": "GPL-3.0-only",
         "publishConfig": {"access": "public"},
         **fields,

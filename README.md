@@ -24,7 +24,7 @@ cargo install crabx
 
 The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_VERSION` or
 `CRABX_INSTALL_DIR` to choose another. `install.ps1` also adds that directory to the user's
-`Path`; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
+`Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
 Then:
 
@@ -106,8 +106,8 @@ named `init` as `crabx init@VERSION`.
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
 `tests/e2e.sh` against the live crates.io and GitHub on every target, then offline from its cache, and runs
-`cargo test` on macOS and Windows and `install.ps1` on Windows, and checks that crabx.kixel.me serves the page and
-both installers.
+`cargo test` on macOS and Windows and `install.ps1` on Windows. It also runs both documented install lines from
+crabx.kixel.me.
 
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
