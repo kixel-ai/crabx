@@ -38,7 +38,7 @@ jobs:
         env:
           # A fresh checkout rebuilds crabx itself whole, so incremental state is only cache weight.
           CARGO_INCREMENTAL: 0
-      - if: steps.cargo.outputs.cache-hit != 'true'
+      - if: github.ref == 'refs/heads/main' && steps.cargo.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
