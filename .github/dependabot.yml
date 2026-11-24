@@ -16,12 +16,45 @@ updates:
           - "*"
 
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directories:
+      - "/"
+      - "/.github/actions/*"
     schedule:
       interval: "weekly"
     cooldown:
       default-days: 7
     groups:
       github-actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  # rust-toolchain.toml, which flake.nix also reads.
+  - package-ecosystem: "rust-toolchain"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  # The pipeline's Linux linker, installed by crabx-build.yml.
+  - package-ecosystem: "pip"
+    directory: "/pipeline"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+    groups:
+      pip:
         patterns:
           - "*"
