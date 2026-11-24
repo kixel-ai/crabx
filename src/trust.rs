@@ -376,6 +376,38 @@ mod tests {
 	}
 
 	#[test]
+	fn an_attestation_page_holds_at_most_one_attestation() {
+		let page = |json: &str| serde_json::from_str::<Page>(json);
+		assert!(page(r#"{"attestations":[]}"#).unwrap().attestations.is_none());
+		let bundle = include_str!("../tests/data/attestation.json");
+		let one = page(&format!(r#"{{"attestations":[{{"bundle":{bundle}}}]}}"#)).unwrap();
+		assert!(one.attestations.unwrap().bundle.is_some());
+		let external = page(r#"{"attestations":[{"bundle":null,"bundle_url":"https://example.com/b"}]}"#).unwrap();
+		assert!(external.attestations.unwrap().bundle_url.is_some());
+		// A server that ignores per_page=1, or omits the list, is refused rather than truncated.
+		let error = page(r#"{"attestations":[{},{}]}"#).err().unwrap();
+		assert!(error.to_string().contains("ignored the attestation page size"));
+		assert!(page("{}").is_err());
+		assert!(page(r#"{"attestations":null}"#).is_err());
+	}
+
+	#[test]
+	fn release_attestations_need_an_in_toto_payload() {
+		let json = include_str!("../tests/data/github-attestation.json");
+		assert!(release(&Bundle::from_json(json).unwrap()).unwrap().is_some());
+		let mut changed: serde_json::Value = serde_json::from_str(json).unwrap();
+		changed["dsseEnvelope"]["payloadType"] = "text/plain".into();
+		let changed = Bundle::from_json(&serde_json::to_string(&changed).unwrap()).unwrap();
+		assert!(release(&changed).is_err());
+		// Another predicate, such as a build provenance, is no release attestation.
+		assert!(
+			release(&Bundle::from_json(include_str!("../tests/data/attestation.json")).unwrap())
+				.unwrap()
+				.is_none()
+		);
+	}
+
+	#[test]
 	fn github_cursor_pagination_preserves_the_cursor_and_api_boundary() {
 		let current =
 			reqwest::Url::parse("https://api.github.com/repos/a/b/attestations/sha256:abc?per_page=1").unwrap();

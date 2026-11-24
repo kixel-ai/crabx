@@ -11,9 +11,8 @@ adding one configless workflow. moq's CLIs (moq-cli, moq-relay) use it first.
 Non-goals: hosting a builder, building repos that haven't opted in, builds of `main` or
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
-What stays here once every child has merged: an end-to-end check that runs a published
-crate through crabx on all six targets from a machine with no Rust toolchain. The docs
-page is [the site](/quest/m0/site/README.md).
+What stays here once every child has merged: nothing. The docs page is [the site](/quest/m0/site/README.md),
+and the end-to-end check is [e2e](/quest/m1/e2e.md).
 
 ## Plan
 
@@ -31,6 +30,9 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   or [cgx](https://github.com/anelson/cgx) (it compiles by default and needs config).
 - ✅ A runner installed once, and also published to npm so `npx crabx <crate>` needs
   nothing new. Rejected: runner only; each tool published to npm or PyPI on its own.
+  Decided 2026-11-24 (maintainer, /quest-run): npm refuses the unscoped `crabx`, so ✅ the
+  npm package is `@kixel/crabx`, installed once with `npm install -g @kixel/crabx`, and the
+  docs drop `npx`/`bunx` runs (rejected: asking npm for `crabx`; another unscoped name).
 - ✅ Anything binstall resolves from the author's releases, so crates that already attach
   release assets work on day one; the pipeline primarily exists to set those assets up. Rejected: opted-in repos
   only; any crates.io crate built on demand.
@@ -47,7 +49,8 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
 - ✅ An unpinned run is stale-while-revalidate: it runs the cached latest and checks
   crates.io's sparse index in the background for the next run. Once cached, a pinned version
   runs with no network. Rejected: a check every run; a 24-hour TTL.
-- ✅ The name `crabx`, free on npm and crates.io, following npx, bunx, and uvx.
+- ✅ The name `crabx`, free on crates.io, following npx, bunx, and uvx; npm's package is
+  `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.
 - ✅ A pipeline workflow and `crabx init` now, the GitHub App
   [later](/quest/m1/app.md). Rejected: the App in the first cut; no App.

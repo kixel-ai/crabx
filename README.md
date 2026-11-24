@@ -3,20 +3,21 @@
 Run a crates.io CLI from its author's release assets:
 
 ```sh
-npx crabx moq-cli --help
-bunx crabx moq-cli --help
+crabx moq-cli --help
 ```
 
-Or install crabx itself from its release:
+Install crabx once, from its release:
 
 ```sh
 curl -fsSL https://crabx.kixel.ai/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.ai/install.ps1 | iex"
+npm install -g @kixel/crabx
 cargo install crabx
 ```
 
 The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_VERSION` or
-`CRABX_INSTALL_DIR` to choose another. Prebuilt crabx covers x86_64 and arm64 on glibc
+`CRABX_INSTALL_DIR` to choose another. `install.ps1` also adds that directory to the user's
+`Path`; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
 Then:
 
@@ -47,8 +48,8 @@ certificate, SCT, signature, artifact digest, and transparency log against Sigst
 production trust root. GitHub's timestamp-only bundles use GitHub's separate CA and
 timestamp authority, verifying the certificate, signature, digest, and RFC 3161 time.
 Both roots refresh through TUF. A malformed bundle, wrong repository, or verification/API
-failure is an error. No published attestation is allowed, as are author releases hosted
-outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
+failure is an error. A release with no published attestation is allowed, as are author
+releases hosted outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
 `GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit; they are sent
 only to GitHub's attestation API.
 
@@ -98,7 +99,7 @@ Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
 to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the newest stable version's
-binaries to npm as `crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
+binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
 attestation first. Every step skips what is already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
 `.github/workflows/installers.yml` serves main's `install.sh` and `install.ps1` at `crabx.kixel.ai`

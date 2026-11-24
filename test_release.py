@@ -1,4 +1,4 @@
-"""Exercise crabx's release planning, npm packages, launcher, installer, and publish job offline."""
+"""Exercise crabx's release planning, crate and npm packages, launcher, installer, and publish job offline."""
 
 import importlib.util
 import io
@@ -80,6 +80,9 @@ class Plan(unittest.TestCase):
         builds = json.loads(result["builds"])["include"]
         self.assertEqual({b["target"] for b in builds}, set(r.NPM_TARGETS))
         self.assertTrue(all(b["sha"] == "c" * 40 and b["path"] == "." and b["os"] for b in builds))
+        # The build workflow reads these fields from each entry, as it does from the pipeline's.
+        reads = set(re.findall(r"\bmatrix\.([a-z_]+)", (HERE / ".github/workflows/crabx-build.yml").read_text()))
+        self.assertTrue(all(reads <= b.keys() for b in builds), reads)
 
     def test_crate_refuses_bare_tags_on_new_or_published_versions(self):
         # The pipeline would release under them, where npm and the installers never look.
@@ -113,10 +116,10 @@ class Pack(unittest.TestCase):
             temp = Path(temp)
             archives(temp / "archives", "1.2.3")
             r.pack("1.2.3", temp / "archives", temp / "packages")
-            main = json.loads((temp / "packages/crabx/package.json").read_text())
+            main = json.loads((temp / "packages/@kixel/crabx/package.json").read_text())
             self.assertEqual(main["bin"], {"crabx": "crabx.js"})
             self.assertEqual(main["optionalDependencies"], {r.platform_name(t): "1.2.3" for t in r.NPM_TARGETS})
-            self.assertEqual((temp / "packages/crabx/crabx.js").read_bytes(), LAUNCHER.read_bytes())
+            self.assertEqual((temp / "packages/@kixel/crabx/crabx.js").read_bytes(), LAUNCHER.read_bytes())
             linux = json.loads((temp / "packages/@kixel/crabx-linux-arm64-gnu/package.json").read_text())
             self.assertEqual((linux["os"], linux["cpu"], linux["libc"]), (["linux"], ["arm64"], ["glibc"]))
             windows = json.loads((temp / "packages/@kixel/crabx-win32-x64/package.json").read_text())
@@ -164,6 +167,28 @@ class Pack(unittest.TestCase):
             with patch.object(r.subprocess, "run", return_value=attested(crate, version)), self.assertRaises(ValueError):
                 r.verify(Path("a.tgz"), "1.0.0")
 
+    def test_download_refuses_a_release_missing_an_archive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archives(Path(temp), "1.0.0")
+            (Path(temp) / "crabx-aarch64-pc-windows-msvc-v1.0.0.tgz").unlink()
+            with patch.object(r.subprocess, "run"), patch.object(r, "verify") as verify, self.assertRaisesRegex(ValueError, "has no crabx-aarch64-pc-windows-msvc"):
+                r.download("1.0.0", Path(temp))
+        self.assertEqual(verify.call_count, len(r.NPM_TARGETS) - 1)
+
+
+class Crate(unittest.TestCase):
+    def test_the_package_holds_every_file_the_code_reads(self):
+        # cargo package builds no tests, so a file only a test reads would be missing unnoticed.
+        listed = subprocess.run(["cargo", "package", "--list", "--locked", "--offline", "--allow-dirty"], cwd=HERE, check=True, capture_output=True, text=True).stdout.splitlines()
+        reads = set()
+        for source in sorted((HERE / "src").rglob("*.rs")) + sorted((HERE / "tests").rglob("*.rs")) + sorted((HERE / "vendor").rglob("*.rs")):
+            text = source.read_text()
+            for path in re.findall(r'(?:include_str!|include_bytes!|#\[path =) ?\(?"([^"]+)"', text):
+                reads.add((source.parent / path).resolve().relative_to(HERE).as_posix())
+            reads.update(re.findall(r'env!\("CARGO_MANIFEST_DIR"\), "/([^"]+)"', text))
+        self.assertIn("pipeline/README.md", reads)
+        self.assertLessEqual(reads, set(listed))
+
 
 @unittest.skipIf(sys.platform == "win32", "the fake binary is a shell script")
 class Launcher(unittest.TestCase):
@@ -173,8 +198,8 @@ class Launcher(unittest.TestCase):
         self.temp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.temp)
         self.root = self.temp / "node_modules"
-        (self.root / "crabx").mkdir(parents=True)
-        shutil.copy(LAUNCHER, self.root / "crabx/crabx.js")
+        (self.root / r.LAUNCHER_NAME).mkdir(parents=True)
+        shutil.copy(LAUNCHER, self.root / r.LAUNCHER_NAME / "crabx.js")
         arch = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[os.uname().machine]
         platform = {"linux": "linux", "darwin": "darwin"}[sys.platform]
         self.package = self.root / r.platform_name(next(t for t, p in r.NPM_TARGETS.items() if p == (platform, arch)))
@@ -191,7 +216,7 @@ class Launcher(unittest.TestCase):
 
     def command(self, runtime):
         """The launcher under one of the runtimes RUNTIMES names."""
-        launcher = str(self.root / "crabx/crabx.js")
+        launcher = str(self.root / r.LAUNCHER_NAME / "crabx.js")
         return ["node", "--require", str(self.old_node), launcher] if runtime == "old node" else [runtime, launcher]
 
     def launch(self, runtime, *args):
