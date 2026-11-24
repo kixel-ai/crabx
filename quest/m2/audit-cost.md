@@ -9,7 +9,7 @@ Run the `cost` audit: `quest audit cost` prints what it checks, what each findin
 Baseline, from the run in [kixel-ai/crabx#7](https://github.com/kixel-ai/crabx/pull/7).
 CI figures are GitHub-hosted runners' own job and step times; local ones are `fedora` (24 CPUs) at a 1-minute load of 20 to 34, so compare their ratios, not their seconds.
 
-- The gate, `check` on `ubuntu-24.04`: 142 s median over the 12 runs up to `f1d6151` (3 on slow runners took 195 to 203 s), as 13 s setup, 42 s dev shell, 42 s clippy, 35 s test build, 1.5 s for all 68 tests, and 5 s of teardown. From `9701f4a` it is 72 s on a cache hit: dev shell 40 s, clippy 3 s, test build 4 s. The cache is 506 MB, saved only by `main`, keyed on `Cargo.lock`, `rust-toolchain.toml`, and `flake.lock`.
+- The gate, `check` on `ubuntu-24.04`: 142 s median over the 12 runs up to `f1d6151` (3 on slow runners took 195 to 203 s), as 13 s setup, 42 s dev shell, 42 s clippy, 35 s test build, 1.5 s for all 68 tests, and 5 s the runner spent waiting on a `sleep` a test leaked. After that run it is 136 s cold (`17eb692`) and 72 s on a cache hit (`9701f4a`, before the leak's 5 s went): dev shell 40 s, clippy 3 s, test build 4 s. The cache is 506 MB, saved only by `main`, keyed on `Cargo.lock`, `rust-toolchain.toml`, and `flake.lock`.
 - Crabx fixture, on pull requests touching `pipeline/**` or `crabx*.yml`: 253 s of runner time over 7 jobs, 136 s of it on the two Windows runners and 63 s on the two macOS ones.
 - Pullfrog: 127 to 148 s a review, 68 s of it putting the dev shell on `PATH`.
 - Release: its plan job fails in 4 to 12 s on every push and daily until [the first publish](/quest/m0/first-publish.md); no release has run, so its build and publish jobs have no timings yet.
