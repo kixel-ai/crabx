@@ -113,8 +113,8 @@ Flags:
     <li>
       <span class="num">02</span>
       <h3>Verify</h3>
-      <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's
-      trust root, and requires the signer to be the crate's repository, crabx's
+      <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's or
+      GitHub's own trust root, and requires the signer to be the crate's repository, crabx's
       pipeline, or GitHub's release service for that repository's tag. <strong>A bad attestation is an error, never a warning.</strong> A release
       with none, such as moq-relay's above, runs unverified.</p>
     </li>
@@ -132,8 +132,8 @@ Flags:
   <h2 id="authors">Ship your crate's binaries</h2>
   <p class="lede">Publishing to crates.io is enough. Run <code>crabx init</code> once in your
   crate's repository: it writes one workflow that calls crabx's release pipeline, which
-  builds every crates.io version you publish after you commit that workflow, for all six
-  platforms, and adds the archives its release lacks, each attested. The repository must be public and
+  builds every crates.io version you publish after you commit that workflow for whichever
+  of the six platforms its release lacks, and attests those archives. The repository must be public and
   be the one your crate's <code>repository</code> field names on crates.io.</p>
   <div class="run more">
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>
