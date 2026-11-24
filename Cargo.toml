@@ -6,8 +6,9 @@ rust-version = "1.100"
 description = "Run a Rust CLI from its author's release, without compiling"
 repository = "https://github.com/kixel-ai/crabx"
 license = "GPL-3.0-only"
-# The npm packages, installers, pipeline, and quests ship from the repository, not inside the crate.
-include = ["/LICENSE", "/README.md", "/src", "/tests", "/vendor"]
+# The npm packages, installers, pipeline, and quests ship from the repository, not inside the
+# crate; the pipeline README is the caller a test checks `crabx init` writes.
+include = ["/LICENSE", "/README.md", "/pipeline/README.md", "/src", "/tests", "/vendor"]
 
 [workspace]
 
