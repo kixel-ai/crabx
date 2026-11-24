@@ -50,7 +50,3 @@ Recommendations:
 - Replace every crabx.kixel.ai mention outside `quest/` with crabx.kixel.me: the README,
   both installers' usage lines, and the workflow's comments.
 - The PR adds a follow-up quest for the maintainer to try and promote the site.
-
-## Required
-
-- [Logo](/quest/m0/site/logo.md) - the favicon and lockup the page shows
