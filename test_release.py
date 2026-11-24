@@ -265,7 +265,9 @@ class Launcher(unittest.TestCase):
         self.binary("""exec python3 -I -c '
 import signal, sys
 codes = {signal.SIGINT: 2, signal.SIGTERM: 3}
-signal.pthread_sigmask(signal.SIG_BLOCK, codes)
+# sigwait would also take a signal the launcher left blocked, which crabx itself could not handle.
+if blocked := signal.pthread_sigmask(signal.SIG_BLOCK, codes) & codes.keys():
+    sys.exit(f"inherited blocked {sorted(s.name for s in blocked)}")
 print("ready", flush=True)
 signal.alarm(20)
 sig = signal.sigwait(codes)
