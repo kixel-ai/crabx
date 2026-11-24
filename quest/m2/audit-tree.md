@@ -7,7 +7,7 @@ Run the `tree` audit: `quest audit tree` prints what it checks, what each findin
 ## Plan
 
 - Baseline: the m1 run (2026-11-23) found the tree small enough to read in one pass, without sub-agents.
-- Check first that each follow-up a PR assigns to another repository's quest tree exists there; the moq one from kixel-ai/rust2#719 never did.
+- Check first that each follow-up a PR assigns to another repository's quest tree exists there; the moq one from kixel-ai/rust2#719 never did, and was dropped on 2026-11-24 once crabx turned out to run moq's own releases.
 - Read the quest files open PRs add, from `quest pr list`, alongside `main`'s.
 
 ## Audit
