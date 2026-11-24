@@ -1,1 +1,3 @@
+# LF everywhere, or a Windows checkout embeds CRLF in the workflow crabx init writes.
+* text=auto eol=lf
 quest/** merge=quest

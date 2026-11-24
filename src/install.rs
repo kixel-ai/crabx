@@ -307,8 +307,11 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 			target_related_info: data.target_related_info,
 		};
 		let direct = bins::infer_bin_dir_template(&named, &mut |p| data.bin_path.join(p).is_dir()).into_owned();
-		let parent = Path::new(&direct).parent().unwrap_or_else(|| Path::new(""));
-		let nested = format!("{}/{{ bin }}{{ binary-ext }}", parent.join("bin").display());
+		// Templates separate with `/` on every host, and leon reads Windows' `\` as an escape.
+		let nested = match direct.rsplit_once('/') {
+			Some((parent, _)) => format!("{parent}/bin/{{ bin }}{{ binary-ext }}"),
+			None => "bin/{ bin }{ binary-ext }".to_owned(),
+		};
 		candidates.extend([direct, nested]);
 	}
 	for candidate in &candidates {
