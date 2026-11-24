@@ -11,9 +11,8 @@ adding one configless workflow. moq's CLIs (moq-cli, moq-relay) use it first.
 Non-goals: hosting a builder, building repos that haven't opted in, builds of `main` or
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
-What stays here once every child has merged: an end-to-end check that runs a published
-crate through crabx on all six targets from a machine with no Rust toolchain. The docs
-page is [the site](/quest/m0/site/README.md).
+What stays here once every child has merged: nothing. The docs page is [the site](/quest/m0/site/README.md),
+and the end-to-end check is [e2e](/quest/m1/e2e.md).
 
 ## Plan
 

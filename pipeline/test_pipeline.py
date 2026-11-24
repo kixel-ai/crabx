@@ -5,6 +5,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tarfile
 import tempfile
 import unittest
@@ -172,18 +173,77 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(len(uploads), 5)
         self.assertNotIn("archives/" + first, [args[4] for args in uploads])
 
-    def test_discovery_missing_targets(self):
-        repo = "https://github.com/example/demo"
+    def discovered(self):
+        """Run the real discover() and published() against a crate whose first target is already released."""
+        manifest = f'[package]\nname="demo"\nversion="1.2.3"\nrepository="{REPO}"\n[[bin]]\nname="demo"\n'.encode()
+        archive = crate({"Cargo.toml": manifest, ".cargo_vcs_info.json": json.dumps({"git": {"sha1": ITEM["sha"]}, "path_in_vcs": ITEM["path"]}).encode()})
         def run(*args):
             if args[:2] == ("git", "log"):
                 return "2026-01-01T00:00:00+00:00"
             if args[:2] == ("git", "ls-files"):
                 return "Cargo.toml"
             return p.asset(ITEM, p.TARGETS[0][0])
-        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": repo}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p, "published", return_value=dict(ITEM)) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=run), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": REPO}, "versions": [{"num": "1.2.3", "created_at": "2026-02-01T00:00:00Z", "yanked": False}, {"num": "0.1.0", "created_at": "2025-01-01T00:00:00Z", "yanked": False}]}), patch.object(p.urllib.request, "urlopen", return_value=archive), patch.object(p, "published", wraps=p.published) as published, patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}):
             items = p.discover()
         self.assertEqual(published.call_count, 1)
-        self.assertEqual(items[0]["targets"], [t for t, _ in p.TARGETS[1:]])
+        return items
+
+    def test_discovery_missing_targets(self):
+        items = self.discovered()
+        self.assertEqual(items, [{**ITEM, "targets": [t for t, _ in p.TARGETS[1:]]}])
+
+    def test_build_refuses_a_checkout_that_is_not_the_published_crate(self):
+        for packages, error in (
+            ([], "does not match"),
+            ([{"name": "demo", "version": "9.9.9", "targets": []}], "does not match"),
+            ([{"name": "demo", "version": "1.2.3", "targets": [{"name": "demo", "kind": ["lib"]}]}], "no binaries"),
+        ):
+            metadata = json.dumps({"target_directory": "target", "packages": packages})
+            with patch.object(p, "run", return_value=metadata) as run, self.assertRaisesRegex(ValueError, error):
+                p.build(ITEM, "x86_64-unknown-linux-gnu")
+            # Nothing of the crate's is compiled.
+            self.assertEqual(run.call_count, 1)
+
+    def test_publish_refuses_a_moved_tag_or_a_missing_asset(self):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo"}), patch.object(Path, "is_file", return_value=True), patch.object(p, "tag", return_value="v1.2.3"), patch.object(p, "api") as api:
+            with self.assertRaisesRegex(ValueError, "tag changed"):
+                p.publish(ITEM)
+        api.assert_not_called()
+        # An asset deleted after the archive check is never replaced by an upload of nothing.
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo"}), patch.object(p, "built"), patch.object(Path, "is_file", return_value=False), patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}), patch.object(p, "run", return_value="[[]]") as run:
+            with self.assertRaisesRegex(ValueError, "missing asset"):
+                p.publish(ITEM)
+        self.assertFalse([call for call in run.call_args_list if call.args[:3] == ("gh", "release", "upload")])
+
+    def outputs(self, mode, items=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            env = {"GITHUB_OUTPUT": str(out), "GITHUB_SHA": "c" * 40}
+            with patch.dict(os.environ, env), patch.object(p.sys, "argv", ["pipeline.py", mode]), patch.object(p, "discover", return_value=list(items)):
+                p.main()
+            return {key: json.loads(value) for key, value in (line.split("=", 1) for line in out.read_text().splitlines())}
+
+    def test_outputs_carry_every_field_the_workflows_read(self):
+        def reads(workflow):
+            return set(re.findall(r"\bmatrix\.([a-z_]+)", (Path(__file__).parents[1] / ".github/workflows" / workflow).read_text()))
+        for mode, items in (("fixture", ()), ("discover", self.discovered())):
+            found = self.outputs(mode, items)
+            self.assertIs(found["any"], True)
+            builds = found["builds"]["include"]
+            self.assertEqual(len(builds), 6 if mode == "fixture" else 5)
+            for build in builds:
+                self.assertLessEqual(reads("crabx-build.yml"), build.keys(), mode)
+                self.assertEqual(build["os"], dict(p.TARGETS)[build["target"]])
+        # The fixture publishes nothing, so only discovered releases carry a tag.
+        for release in found["releases"]["include"]:
+            self.assertLessEqual(reads("crabx.yml"), release.keys())
+        self.assertEqual(self.outputs("discover"), {"builds": {"include": []}, "releases": {"include": []}, "any": False})
+
+    def test_a_backfill_past_the_matrix_limit_fails(self):
+        items = [{**ITEM, "version": f"1.0.{n}"} for n in range(256 // len(p.TARGETS) + 1)]
+        with self.assertRaisesRegex(ValueError, "256-job matrix"):
+            self.outputs("discover", items)
+        self.outputs("discover", items[:-1])
 
 
 if __name__ == "__main__":

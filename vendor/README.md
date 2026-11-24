@@ -14,9 +14,9 @@ Local changes:
   hashing the same stream minisign checks. crabx checks attestations before installing.
 - Qualify internal paths under `crate::fetchers` and compile quickinstall
   unconditionally; crabx enables its use only with `--allow-quickinstall`.
-- Remove upstream's test modules, some of which need the network or upstream's workspace
-  docs. Keep a test that the default templates guess `{name}-v{version}` and
-  `{name}-{version}` tags; crabx tests execution and trust offline.
+- Remove upstream's test modules and their helpers, some of which need the network or
+  upstream's workspace docs. Keep a test that the default templates guess
+  `{name}-v{version}` and `{name}-{version}` tags; crabx tests execution and trust offline.
 - Wait for resolver channel capacity so a queued error cannot discard a successful candidate.
 
 Upstream: https://github.com/cargo-bins/cargo-binstall
