@@ -11,6 +11,7 @@ on:
     paths:
       - .github/workflows/e2e.yml
       - .github/workflows/crabx-build.yml
+      - pipeline/pipeline.py
       - tests/e2e.sh
       - release.py
       - install.ps1
