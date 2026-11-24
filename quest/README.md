@@ -7,7 +7,7 @@ as npx on a warm cache, from a prebuilt binary for their platform, and never com
 unless they pass `--build`. Any crate whose releases carry assets binstall finds works,
 with quickinstall's third-party builds behind a flag. A repo opts into prebuilt builds of each crates.io version, for Linux, macOS, and Windows on x86_64 and arm64, by
 adding one configless workflow. moq's CLIs (moq-cli, moq-relay) run through crabx first,
-from moq's own attested releases.
+from moq's own releases.
 
 Non-goals: hosting a builder, building repos that haven't opted in, builds of `main` or
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
@@ -68,6 +68,11 @@ bare `#N` references rewritten to `kixel-ai/rust2#N`.
 Decided 2026-11-24 (maintainer, /quest-run): ✅ moq keeps its own release workflow, and no
 quest switches it to the pipeline (rejected: planning the switch in moq-dev/moq; a moq quest
 adding only the targets it lacks). `crabx moq-cli` and `crabx moq-relay` already run moq's
-attested release assets, signed by moq's own workflow, which crabx trusts as the author's.
-The switch would add only macOS x64, Windows arm64, and a glibc 2.28 floor (moq builds on
-Ubuntu 22.04), while moq's armv7, `.deb`/`.rpm`, and apt builds would stay its own.
+release assets. The switch would add macOS x64, Windows arm64, and a glibc 2.28 floor (moq
+builds on Ubuntu 22.04), while moq's armv7, `.deb`/`.rpm`, and apt builds would stay its own.
+
+Corrected 2026-11-24 (/quest-run): moq's release assets carry no GitHub attestation, so
+crabx runs them unverified, as it does any release without one; the decision above said
+they were attested. As of moq-relay 0.17.18 and moq-cli 0.14.18, `gh attestation verify -R
+moq-dev/moq` returns 404 for their x86_64 Linux archives. The switch would also attest
+them.
