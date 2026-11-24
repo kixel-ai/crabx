@@ -89,6 +89,9 @@ pub enum FetchError {
 
 	#[error("Failed to wait for task: {0}")]
 	TaskJoinError(#[from] JoinError),
+
+	#[error("crabx does not install releases from private GitHub repositories; use --build to compile the crate")]
+	PrivateRepository,
 }
 
 impl From<RemoteError> for FetchError {

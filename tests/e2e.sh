@@ -87,9 +87,12 @@ cases() {
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }
 
-# Release discovery and downloads go to GitHub unauthenticated, as users' do, under a quota this
-# address may share; a failure log needs what was left of it.
-echo "e2e: unauthenticated GitHub API quota: $(curl -fsS --max-time 30 https://api.github.com/rate_limit | tr -d ' \n' | grep -o '"core":{[^}]*}')"
+# A failure log needs the API quota crabx had: the token's, and the one this address shares
+# with other tenants, which crabx spends without a token.
+quota() { curl -fsS --max-time 30 "$@" https://api.github.com/rate_limit | tr -d ' \n' | grep -o '"core":{[^}]*}'; }
+echo "e2e: unauthenticated GitHub API quota: $(quota)"
+token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+if [ -n "$token" ]; then echo "e2e: token's GitHub API quota: $(quota -H @- <<<"Authorization: Bearer $token")"; fi
 cases online
 
 # Refusals name what to do instead, and install nothing.

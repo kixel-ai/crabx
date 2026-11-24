@@ -5,7 +5,7 @@ use std::{
 	sync::{Arc, OnceLock},
 };
 
-use binstalk_git_repo_api::gh_api_client::{GhApiError, GhReleaseArtifact, GhReleaseArtifactUrl};
+use binstalk_git_repo_api::gh_api_client::{GhApiError, GhReleaseArtifact};
 use binstalk_types::{cargo_toml_binstall::Strategy, crate_info::PkgUrlHint};
 use compact_str::{CompactString, ToCompactString};
 use either::Either;
@@ -42,7 +42,6 @@ struct Resolved {
 	archive_suffix: Option<String>,
 	repo: Option<String>,
 	subcrate: Option<String>,
-	gh_release_artifact_url: Option<GhReleaseArtifactUrl>,
 	is_repo_private: bool,
 	/// The alias from [`target_arch_aliases`] that `{ target-arch }` was
 	/// rendered as in `url`, if not the architecture's own name.
@@ -178,14 +177,13 @@ impl GhCrateMeta {
 			async move {
 				debug!("Checking for package at: '{url}'");
 
-				let mut resolved = Resolved {
+				let resolved = Resolved {
 					url: url.clone(),
 					pkg_fmt,
 					repo,
 					subcrate,
 					archive_suffix,
 					is_repo_private,
-					gh_release_artifact_url: None,
 					target_arch,
 					default_pkg_url,
 				};
@@ -193,10 +191,7 @@ impl GhCrateMeta {
 				if let Some(artifact) = gh_release_artifact {
 					loop {
 						match get_gh_release_artifact_url(gh_api_client.clone(), artifact.clone()).await {
-							Ok(Some(artifact_url)) => {
-								resolved.gh_release_artifact_url = Some(artifact_url);
-								return Ok(Some(resolved));
-							}
+							Ok(Some(_)) => return Ok(Some(resolved)),
 							Ok(None) => return Ok(None),
 
 							// A public release asset can be checked with
@@ -249,6 +244,11 @@ impl super::Fetcher for GhCrateMeta {
 			let repo = info.map(|info| &info.repo);
 			let subcrate = info.and_then(|info| info.subcrate.as_deref());
 			let is_repo_private = info.map(|info| info.is_private).unwrap_or_default();
+			// A private release downloads with the token from a URL the API names, so
+			// refuse it rather than send the token beyond GitHub's API.
+			if is_repo_private {
+				return Err(FetchError::PrivateRepository);
+			}
 
 			let mut pkg_fmt = self.target_data.meta.pkg_fmt;
 
@@ -462,16 +462,9 @@ impl super::Fetcher for GhCrateMeta {
 			inner: verifier.data_verifier()?,
 			digest: sha2::Sha256::new(),
 		};
-		let files = match resolved.gh_release_artifact_url.as_ref() {
-			Some(artifact_url) if resolved.is_repo_private => self
-				.gh_api_client
-				.download_artifact(artifact_url.clone())
-				.await?
-				.with_data_verifier(&mut data_verifier),
-			_ => Download::new_with_data_verifier(self.client.clone(), resolved.url.clone(), &mut data_verifier),
-		}
-		.and_extract(resolved.pkg_fmt, dst)
-		.await?;
+		let files = Download::new_with_data_verifier(self.client.clone(), resolved.url.clone(), &mut data_verifier)
+			.and_extract(resolved.pkg_fmt, dst)
+			.await?;
 		trace!("validating signature (if any)");
 		if data_verifier.validate() {
 			if let Some(info) = verifier.info() {

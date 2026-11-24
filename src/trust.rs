@@ -51,7 +51,7 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 	// Request one bundle per page. An attestation for a different digest is never queried.
 	let endpoint = format!("https://api.github.com/repos/{repo}/attestations/sha256:{digest}");
 	let mut url = reqwest::Url::parse(&format!("{endpoint}?per_page=1"))?;
-	let token = github_token()?;
+	let token = network::github_token()?;
 	let mut first_page = true;
 	let mut verified = false;
 	let mut roots: [Option<TrustedRoot>; 2] = [None, None];
@@ -139,19 +139,6 @@ fn external_bundle(path: &Path) -> Result<Bundle> {
 	);
 	let json = snap::raw::Decoder::new().decompress_vec(&compressed)?;
 	Ok(serde_json::from_slice(&json)?)
-}
-
-// Tokens are sent only to the fixed, validated GitHub API origin, never to
-// archive hosts, sparse indexes, or Sigstore's trust-root services.
-fn github_token() -> Result<Option<String>> {
-	for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
-		match std::env::var(name) {
-			Ok(token) if !token.is_empty() => return Ok(Some(token)),
-			Ok(_) | Err(std::env::VarError::NotPresent) => (),
-			Err(_) => bail!("{name} is not UTF-8"),
-		}
-	}
-	Ok(None)
 }
 
 fn next_page(link: Option<&str>, current: &reqwest::Url, repo: &str, digest: &str) -> Result<Option<reqwest::Url>> {

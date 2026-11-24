@@ -57,8 +57,9 @@ timestamp authority, verifying the certificate, signature, digest, and RFC 3161 
 Both roots refresh through TUF. A malformed bundle, wrong repository, or verification/API
 failure is an error. A release with no published attestation is allowed, as are author
 releases hosted outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
-`GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit; they are sent
-only to GitHub's attestation API.
+`GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit for release
+discovery and attestations; they are sent only to GitHub's API, `api.github.com`. Releases
+from private GitHub repositories are refused; `--build` compiles those crates.
 
 Workflow certificates must name the crate's repository and either that repository's
 workflow or crabx's reusable pipeline, `.github/workflows/crabx.yml` in this repository. Source refs must be tags or branches, excluding

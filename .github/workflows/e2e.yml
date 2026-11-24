@@ -64,7 +64,8 @@ jobs:
       - run: tar -xzf "archives/$ARCHIVE.tgz" -C archives
       - name: Live crates
         env:
-          # Read-only; it raises the attestation API's rate limit on shared runner addresses.
+          # Read-only; crabx uses it for GitHub's API, as users in CI do, instead of the
+          # unauthenticated quota a shared runner address spends.
           GITHUB_TOKEN: ${{ github.token }}
           TARGET: ${{ matrix.target }}
           EXE: ${{ runner.os == 'Windows' && '.exe' || '' }}

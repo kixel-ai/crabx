@@ -4,6 +4,7 @@ use crate::{
 	fetchers::{
 		Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData, TargetDataErased,
 	},
+	network,
 	target::TargetTriple,
 	trust,
 };
@@ -117,7 +118,10 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		meta,
 		bins: binaries,
 	};
-	let gh = GhApiClient::new(client.clone(), None);
+	let gh = GhApiClient::new(
+		client.clone(),
+		network::github_token()?.map(|token| token.into_boxed_str().into()),
+	);
 	let data = Arc::new(Data::new(
 		package.name.as_str().into(),
 		package.version.to_string().into(),

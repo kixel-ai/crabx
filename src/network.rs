@@ -25,6 +25,28 @@ pub fn client() -> Result<Client> {
 		.build()?)
 }
 
+/// The `GH_TOKEN` or `GITHUB_TOKEN` credential, which raises GitHub's API rate limit.
+// It is sent only to the fixed GitHub API origin, never to archive hosts, sparse
+// indexes, or Sigstore's trust-root services.
+pub fn github_token() -> Result<Option<String>> {
+	for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
+		match std::env::var(name) {
+			Ok(token) if token.is_empty() => (),
+			// Release discovery would silently drop a token it can't send in a header.
+			Ok(token) => {
+				ensure!(
+					token.bytes().all(|b| b.is_ascii_graphic()),
+					"{name} holds characters a token cannot"
+				);
+				return Ok(Some(token));
+			}
+			Err(std::env::VarError::NotPresent) => (),
+			Err(_) => anyhow::bail!("{name} is not UTF-8"),
+		}
+	}
+	Ok(None)
+}
+
 // Spool responses to disk instead of retaining the sparse index or pages of bundles.
 pub async fn spool(mut response: Response, directory: &std::path::Path) -> Result<tempfile::NamedTempFile> {
 	let mut file = tempfile::NamedTempFile::new_in(directory)?;
