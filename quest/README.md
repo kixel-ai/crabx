@@ -13,7 +13,7 @@ Non-goals: hosting a builder, building repos that haven't opted in, builds of `m
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
 What stays here once every child has merged: nothing. The docs page is [the site](/quest/m0/site/README.md),
-and the end-to-end check is [e2e](/quest/m1/e2e.md).
+and the end-to-end check is `.github/workflows/e2e.yml`.
 
 ## Plan
 

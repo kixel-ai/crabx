@@ -1,4 +1,4 @@
-"""Publish crabx to crates.io and npm from release.yml, and pack its npm packages."""
+"""Publish crabx to crates.io and npm from release.yml, pack its npm packages, and plan e2e.yml's nightly build."""
 
 import importlib.util
 import json
@@ -95,9 +95,20 @@ def bare_tags():
     return {line.split()[1].removeprefix("refs/tags/v").removesuffix("^{}") for line in out.splitlines()}
 
 
+def checkout_version():
+    """The crabx version this checkout's Cargo.toml declares."""
+    return tomllib.loads((HERE / "Cargo.toml").read_text())["package"]["version"]
+
+
+def builds(version):
+    """The pipeline's build of this commit's crabx on every target, as crabx-build.yml's matrix."""
+    item = {"name": "crabx", "version": version, "sha": os.environ["GITHUB_SHA"], "path": "."}
+    return {"include": [{**item, "target": target, "os": runner} for target, runner in targets()]}
+
+
 def crate():
     """Decide whether this commit's crabx version is new to crates.io, and what to build first."""
-    version = tomllib.loads((HERE / "Cargo.toml").read_text())["package"]["version"]
+    version = checkout_version()
     versions = published()
     # The pipeline releases a version under a bare vX.Y.Z tag naming its published commit
     # instead of crabx-vX.Y.Z, where npm and the installers would never find it. The
@@ -108,8 +119,13 @@ def crate():
     if version in versions:
         output(publish="false", builds={"include": []})
         return
-    item = {"name": "crabx", "version": version, "sha": os.environ["GITHUB_SHA"], "path": "."}
-    output(publish="true", builds={"include": [{**item, "target": target, "os": runner} for target, runner in targets()]})
+    output(publish="true", builds=builds(version))
+
+
+def nightly():
+    """What e2e.yml builds and runs: this commit's crabx on every target, whatever crates.io holds."""
+    version = checkout_version()
+    output(version=version, builds=builds(version))
 
 
 # npm refuses the unscoped `crabx` as too similar to `rax`.
@@ -245,12 +261,14 @@ def main():
     match sys.argv[1:]:
         case ["crate"]:
             crate()
+        case ["nightly"]:
+            nightly()
         case ["npm-plan"]:
             npm_plan()
         case ["publish", version]:
             publish(version)
         case _:
-            raise SystemExit("usage: release.py crate | npm-plan | publish VERSION")
+            raise SystemExit("usage: release.py crate | nightly | npm-plan | publish VERSION")
 
 
 if __name__ == "__main__":

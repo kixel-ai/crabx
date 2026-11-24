@@ -18,5 +18,10 @@ Local changes:
   upstream's workspace docs. Keep a test that the default templates guess
   `{name}-v{version}` and `{name}-{version}` tags; crabx tests execution and trust offline.
 - Wait for resolver channel capacity so a queued error cannot discard a successful candidate.
+- Drop private-repository support: no repository-privacy query, no download with the
+  GitHub token, and a release asset the API finds is confirmed without the token, so a
+  private one reads as missing and the token goes only to GitHub's API.
+- Check a token with GitHub once, before discovery's first API query, and record a rejection
+  for crabx to fail by name instead of resending the token for every candidate URL.
 
 Upstream: https://github.com/cargo-bins/cargo-binstall

@@ -2,8 +2,10 @@ use crate::{
 	cache::{self, Cache, Record},
 	cli::{Args, Spec},
 	fetchers::{
-		Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData, TargetDataErased,
+		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
+		TargetDataErased,
 	},
+	network,
 	target::TargetTriple,
 	trust,
 };
@@ -117,7 +119,13 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		meta,
 		bins: binaries,
 	};
-	let gh = GhApiClient::new(client.clone(), None);
+	let gh = GhApiClient::new(
+		client.clone(),
+		network::github_token()?.map(|token| token.into_boxed_str().into()),
+	);
+	// With a token binstalk prefers GraphQL and never retries on REST, so an exhausted GraphQL
+	// budget would fail discovery; REST shares the budget trust.rs already spends on attestations.
+	gh.set_only_use_restful_api();
 	let data = Arc::new(Data::new(
 		package.name.as_str().into(),
 		package.version.to_string().into(),
@@ -191,7 +199,11 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 			AutoAbortJoinHandle::new(fetcher.clone().find()),
 		)
 		.await
-		.context("release discovery timed out")???;
+		.context("release discovery timed out")?;
+		// Checked after each candidate, even a failed one, so only discovery that reached GitHub's
+		// API needs the token.
+		ensure!(!fetchers::token_rejected(), network::REJECTED_TOKEN);
+		let found = found??;
 		if !found {
 			continue;
 		}
@@ -307,8 +319,11 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 			target_related_info: data.target_related_info,
 		};
 		let direct = bins::infer_bin_dir_template(&named, &mut |p| data.bin_path.join(p).is_dir()).into_owned();
-		let parent = Path::new(&direct).parent().unwrap_or_else(|| Path::new(""));
-		let nested = format!("{}/{{ bin }}{{ binary-ext }}", parent.join("bin").display());
+		// Templates separate with `/` on every host, and leon reads Windows' `\` as an escape.
+		let nested = match direct.rsplit_once('/') {
+			Some((parent, _)) => format!("{parent}/bin/{{ bin }}{{ binary-ext }}"),
+			None => "bin/{ bin }{ binary-ext }".to_owned(),
+		};
 		candidates.extend([direct, nested]);
 	}
 	for candidate in &candidates {

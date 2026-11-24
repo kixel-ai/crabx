@@ -71,7 +71,7 @@ class Plan(unittest.TestCase):
             return dict(line.split("=", 1) for line in out.read_text().splitlines())
 
     def test_crate_skips_a_published_version_even_yanked(self):
-        version = r.tomllib.loads((HERE / "Cargo.toml").read_text())["package"]["version"]
+        version = r.checkout_version()
         self.assertEqual(self.run_crate([(version, True)]), {"publish": "false", "builds": '{"include":[]}'})
 
     def test_crate_builds_a_new_version_on_every_target_first(self):
@@ -84,9 +84,20 @@ class Plan(unittest.TestCase):
         reads = set(re.findall(r"\bmatrix\.([a-z_]+)", (HERE / ".github/workflows/crabx-build.yml").read_text()))
         self.assertTrue(all(reads <= b.keys() for b in builds), reads)
 
+    def test_nightly_builds_this_checkout_whatever_crates_io_holds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "out"
+            with patch.dict(os.environ, {"GITHUB_OUTPUT": str(out), "GITHUB_SHA": "c" * 40}), patch.object(r, "fetch", side_effect=AssertionError("queried crates.io")):
+                r.nightly()
+                expected = r.builds(r.checkout_version())
+            result = dict(line.split("=", 1) for line in out.read_text().splitlines())
+        # e2e.yml reads both outputs: the version names the archive each e2e leg downloads.
+        self.assertEqual(result["version"], r.checkout_version())
+        self.assertEqual(json.loads(result["builds"]), expected)
+
     def test_crate_refuses_bare_tags_on_new_or_published_versions(self):
         # The pipeline would release under them, where npm and the installers never look.
-        version = r.tomllib.loads((HERE / "Cargo.toml").read_text())["package"]["version"]
+        version = r.checkout_version()
         self.assertEqual(self.run_crate([("0.0.1", False)], {"9.9.9"})["publish"], "true")
         for bare in ({version}, {"0.0.1"}):
             with self.assertRaisesRegex(SystemExit, "delete them"):

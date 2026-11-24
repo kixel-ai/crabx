@@ -57,8 +57,10 @@ timestamp authority, verifying the certificate, signature, digest, and RFC 3161 
 Both roots refresh through TUF. A malformed bundle, wrong repository, or verification/API
 failure is an error. A release with no published attestation is allowed, as are author
 releases hosted outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
-`GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit; they are sent
-only to GitHub's attestation API.
+`GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit for release
+discovery and attestations; they are sent only to GitHub's API, `api.github.com`. crabx downloads
+release archives without them, so releases from private GitHub repositories count as
+missing; `--build` compiles those crates.
 
 Workflow certificates must name the crate's repository and either that repository's
 workflow or crabx's reusable pipeline, `.github/workflows/crabx.yml` in this repository. Source refs must be tags or branches, excluding
@@ -102,6 +104,9 @@ default branch from git, and never overwrites a different existing file. Run a c
 named `init` as `crabx init@VERSION`.
 
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
+`.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
+`tests/e2e.sh` against the live crates.io and GitHub on every target, then offline from its cache, and runs
+`cargo test` on macOS and Windows and `install.ps1` on Windows.
 
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)

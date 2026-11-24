@@ -51,9 +51,9 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 	// Request one bundle per page. An attestation for a different digest is never queried.
 	let endpoint = format!("https://api.github.com/repos/{repo}/attestations/sha256:{digest}");
 	let mut url = reqwest::Url::parse(&format!("{endpoint}?per_page=1"))?;
-	let token = github_token()?;
+	let token = network::github_token()?;
 	let mut first_page = true;
-	let mut verified = false;
+	let mut verified = 0;
 	let mut roots: [Option<TrustedRoot>; 2] = [None, None];
 	loop {
 		let mut request = client.get(url.clone()).header("Accept", "application/vnd.github+json");
@@ -69,6 +69,10 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 		if response.status() == reqwest::StatusCode::NOT_FOUND && first_page {
 			return Ok("author release (no published attestation)".into());
 		}
+		ensure!(
+			response.status() != reqwest::StatusCode::UNAUTHORIZED || token.is_none(),
+			network::REJECTED_TOKEN
+		);
 		let response = response.error_for_status().context("query GitHub attestations")?;
 		let next = response.headers().get("link").map(|v| v.to_str()).transpose()?;
 		let next = next_page(next, &url, &repo, &digest)?;
@@ -116,13 +120,13 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 				asset: &receipt.url,
 			},
 		)?;
-		verified = true;
+		verified += 1;
 		let Some(next) = next else { break };
 		url = next;
 		first_page = false;
 	}
-	if verified {
-		Ok(format!("GitHub attestation sha256:{digest}"))
+	if verified > 0 {
+		Ok(format!("GitHub attestations ({verified}) sha256:{digest}"))
 	} else {
 		Ok("author release (no published attestation)".into())
 	}
@@ -139,19 +143,6 @@ fn external_bundle(path: &Path) -> Result<Bundle> {
 	);
 	let json = snap::raw::Decoder::new().decompress_vec(&compressed)?;
 	Ok(serde_json::from_slice(&json)?)
-}
-
-// Tokens are sent only to the fixed, validated GitHub API origin, never to
-// archive hosts, sparse indexes, or Sigstore's trust-root services.
-fn github_token() -> Result<Option<String>> {
-	for name in ["GH_TOKEN", "GITHUB_TOKEN"] {
-		match std::env::var(name) {
-			Ok(token) if !token.is_empty() => return Ok(Some(token)),
-			Ok(_) | Err(std::env::VarError::NotPresent) => (),
-			Err(_) => bail!("{name} is not UTF-8"),
-		}
-	}
-	Ok(None)
 }
 
 fn next_page(link: Option<&str>, current: &reqwest::Url, repo: &str, digest: &str) -> Result<Option<reqwest::Url>> {
