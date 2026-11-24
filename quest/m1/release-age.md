@@ -8,7 +8,8 @@ hours ago, by the `pubtime` the crates.io index records. A pinned
 `crate@version` ignores the delay. `--minimum-release-age <duration>` or
 `CRABX_MINIMUM_RELEASE_AGE` changes the delay, and `0s` turns it off.
 An unpinned run still runs the cached version at once and refreshes in the
-background, but checks the index for a crate at most once a day.
+background, but runs its freshness check, the index fetch that looks for new
+versions, at most once a day per crate.
 
 ## Plan
 
@@ -30,11 +31,14 @@ to index.crates.io, a CDN; GitHub is contacted only to install a new version.
 Decided 2026-11-24 (maintainer, at the review checkpoint of
 [kixel-ai/crabx#27](https://github.com/kixel-ai/crabx/pull/27)): ✅ every
 unpinned run picks its version from the cached index, the current delay and
-the current time, and the daily background fetch is the only fetch (rejected:
+the current time, and the daily freshness check is the only index fetch
+before a version is chosen (rejected:
 extra fetches when a release turns eligible or when a longer delay applies,
 whose timing kept raising review findings). A release becomes runnable on the
-first run after it turns a day old by the cached index, typically 24 to 48
-hours after publishing, since that index is up to a day old.
+A release is eligible once it is a day old. The cached index may not list it
+until the next freshness check, up to a day later, and the first run after
+that starts its background install, so it first executes on a later run,
+typically 24 to 48 hours after publishing.
 
 Invariants the implementation keeps, each with a test that sets the clock
 rather than reading it:
@@ -52,7 +56,7 @@ rather than reading it:
   letting it choose.
 - A version runs only if the newest index data crabx holds says it isn't
   yanked. Nothing fetches early to catch a yank or a release turning
-  eligible: the daily fetch sees both within a day, and a run waits on the
+  eligible: the daily freshness check sees both within a day, and a run waits on the
   network only when nothing cached is eligible.
 - The freshness check, the index fetch that looks for new versions, runs at
   most once a day per crate, in the background, and
