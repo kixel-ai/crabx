@@ -122,6 +122,9 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		client.clone(),
 		network::github_token()?.map(|token| token.into_boxed_str().into()),
 	);
+	// With a token binstalk prefers GraphQL and never retries on REST, so an exhausted GraphQL
+	// budget would fail discovery; REST shares the budget trust.rs already spends on attestations.
+	gh.set_only_use_restful_api();
 	let data = Arc::new(Data::new(
 		package.name.as_str().into(),
 		package.version.to_string().into(),
