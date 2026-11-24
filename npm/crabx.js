@@ -18,7 +18,7 @@ const TARGETS = {
 
 // The platform package's name: Linux packages carry glibc builds only.
 function packageName(platform, arch) {
-	return `@crabx/${platform}-${arch}${platform === "linux" ? "-gnu" : ""}`;
+	return `@kixel/crabx-${platform}-${arch}${platform === "linux" ? "-gnu" : ""}`;
 }
 
 function fail(message) {
