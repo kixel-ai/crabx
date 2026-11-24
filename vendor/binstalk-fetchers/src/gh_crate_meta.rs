@@ -186,11 +186,12 @@ impl GhCrateMeta {
 
 				// The API rules out missing assets in one call per release. A found one is still
 				// checked without the token, which the download won't carry either, so a private
-				// release reads as missing; a rate-limited query leaves it to that check.
+				// release reads as missing; a rate-limited or anonymous 401 query leaves it to that check.
 				if let Some(artifact) = gh_release_artifact {
 					match get_gh_release_artifact_url(gh_api_client.clone(), artifact).await {
 						Ok(None) => return Ok(None),
 						Ok(Some(_)) | Err(GhApiError::RateLimit { .. }) => (),
+						Err(GhApiError::Unauthorized) if !token_rejected() => (),
 						Err(err) => return Err(err.into()),
 					}
 				}

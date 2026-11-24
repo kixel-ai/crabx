@@ -60,8 +60,11 @@ pub(super) async fn get_gh_release_artifact_url(
             });
 			Err(GhApiError::RateLimit { retry_after })
 		}
+		// Without a token, a 401 says nothing about the caller, who can only fall back.
 		Err(GhApiError::Unauthorized) => {
-			TOKEN_REJECTED.store(true, Relaxed);
+			if gh_api_client.has_gh_token() {
+				TOKEN_REJECTED.store(true, Relaxed);
+			}
 			Err(GhApiError::Unauthorized)
 		}
 
@@ -87,6 +90,7 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 			Ok(ret) => return Ok(ret.is_some()),
 
 			Err(GhApiError::RateLimit { .. }) => {}
+			Err(GhApiError::Unauthorized) if !token_rejected() => {}
 
 			Err(err) => return Err(err.into()),
 		}

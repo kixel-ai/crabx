@@ -99,16 +99,19 @@ token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if [ -n "$token" ]; then echo "e2e: token's GitHub API quota: $(quota -H @- <<<"Authorization: Bearer $token")"; fi
 cases online
 
-# Refusals name what to do instead, and install nothing.
+# refused SPEC EXPECT [VAR=VALUE...]: crabx refuses SPEC, naming what to do instead, and installs nothing.
 refused() {
     local spec=$1 expect=$2 error
-    echo "e2e: crabx $spec refuses"
-    if error=$("$crabx" "$spec" --version 2>&1); then fail "$spec ran: $error"; fi
+    shift 2
+    echo "e2e: $* crabx $spec refuses"
+    if error=$(env "$@" "$crabx" "$spec" --version 2>&1); then fail "$spec ran: $error"; fi
     case $error in *"$expect"*) ;; *) fail "$spec failed with: $error" ;; esac
     if [ -e "$cache/author/${spec%@*}/${spec#*@}" ]; then fail "$spec left a cache entry"; fi
 }
 # Only quickinstall serves it, and the quickinstall entry cached above must not satisfy the default policy.
 refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $target; use --build to compile explicitly"
+# A token GitHub rejects fails by name instead of being resent for every candidate URL.
+refused bat@0.26.1 "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it" GH_TOKEN=ghp_e2e_rejected_token
 
 block
 # An uncached version fails offline but installs once the network is back, so the block, not

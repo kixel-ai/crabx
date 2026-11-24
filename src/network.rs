@@ -60,6 +60,8 @@ pub async fn github_token_accepted() -> bool {
 				.get("https://api.github.com/rate_limit")
 				.header("Accept", "application/vnd.github+json")
 				.bearer_auth(token)
+				// Leaves the 30 s discovery deadline room for the query this check precedes.
+				.timeout(Duration::from_secs(10))
 				.send()
 				.await;
 			!matches!(response, Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED)
