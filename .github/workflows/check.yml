@@ -24,4 +24,25 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/nix
+      # Dependencies are nearly all of clippy's and the tests' compile time. Only main
+      # saves, so a pull request reads the cache and can't write what later runs build on.
+      - id: cargo
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            target
+          key: cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'flake.lock') }}
       - run: nix develop --command just ci
+        env:
+          # A fresh checkout rebuilds crabx itself whole, so incremental state is only cache weight.
+          CARGO_INCREMENTAL: 0
+      - if: steps.cargo.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            target
+          key: ${{ steps.cargo.outputs.cache-primary-key }}

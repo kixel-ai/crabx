@@ -1,4 +1,6 @@
 [toolchain]
 # binstalk 0.31 needs 1.100. flake.nix reads this file.
 channel = "1.100.0"
+# No rust-docs: 890 MB in 66,000 files that every CI job and release build would unpack.
+profile = "minimal"
 components = ["rustfmt", "clippy", "rust-src", "rust-analyzer"]
