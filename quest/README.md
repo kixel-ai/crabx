@@ -81,4 +81,8 @@ Decided 2026-11-24 (maintainer, [kixel-ai/crabx#24](https://github.com/kixel-ai/
 ✅ moq's releases get attested by keeping moq's own release workflow and adding
 `actions/attest-build-provenance` to it (rejected: reopening the pipeline switch; accepting
 unattested moq releases), a small moq-only change that gives crabx's first consumer
-verified provenance. That change is moq-dev/moq's work, planned in its own quest tree.
+verified provenance. moq's `main` already has that job
+([moq-dev/moq#7224](https://github.com/moq-dev/moq/pull/7224)), but moq cuts its tags from
+its `release` branch, which lacks it, so the remaining work is getting the job onto the
+branch moq tags from and checking the next archives verify. That is moq-dev/moq's work,
+planned in its own quest tree.
