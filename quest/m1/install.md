@@ -74,7 +74,8 @@ Recommendations:
 - Test the PR's own build, not the registry's: the published 0.1.0 has no
   `install`. Pack the candidate npm packages with `release.py`, and in
   read-only PR CI install from those packages, run bare `crabx install` and
-  check a new shell runs `crabx`, run `crabx install <crate>`,
+  check that a new shell without npm's bin directory on `PATH` resolves
+  `crabx` to the install directory, run `crabx install <crate>`,
   and run the crate by name from a new shell, on all three OSes.
   [The release](/quest/m1/release-0.2.md) runs the registry command once it
   publishes. After its npm job, `release.yml` runs a read-only job on all
