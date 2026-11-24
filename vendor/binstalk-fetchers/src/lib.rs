@@ -19,8 +19,8 @@ mod quickinstall;
 pub use quickinstall::*;
 
 mod common;
-use common::*;
 pub use common::token_rejected;
+use common::*;
 
 mod signing;
 use signing::*;

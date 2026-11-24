@@ -25,7 +25,7 @@ static WARN_RATE_LIMIT_ONCE: Once = Once::new();
 static TOKEN_REJECTED: AtomicBool = AtomicBool::new(false);
 
 /// Whether GitHub's API rejected the token during discovery. The resolver swallows a candidate's
-/// error, so the caller checks this to fail by name, and only once discovery actually used GitHub.
+/// error, so the caller checks this to fail by name, only when discovery actually used GitHub.
 pub fn token_rejected() -> bool {
 	TOKEN_REJECTED.load(Relaxed)
 }
@@ -38,6 +38,15 @@ pub(super) async fn get_gh_release_artifact_url(
 	artifact: GhReleaseArtifact,
 ) -> Result<Option<GhReleaseArtifactUrl>, GhApiError> {
 	debug!("Using GitHub API to check for existence of artifact, which will also cache the API response");
+
+	// Ask once, before the first query, so the hundreds of candidate URLs don't each resend a
+	// rejected token and queue behind each other's 401s.
+	if gh_api_client.has_gh_token() && !crate::network::github_token_accepted().await {
+		TOKEN_REJECTED.store(true, Relaxed);
+	}
+	if token_rejected() {
+		return Err(GhApiError::Unauthorized);
+	}
 
 	// The future returned has the same size as a pointer
 	match gh_api_client.has_release_artifact(artifact).await {

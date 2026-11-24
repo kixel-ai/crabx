@@ -47,6 +47,26 @@ pub fn github_token() -> Result<Option<String>> {
 	Ok(None)
 }
 
+/// Whether GitHub accepts the token, asked once with the rate-limit endpoint, which spends no
+/// quota. Anything but a 401 counts as accepted, leaving the error to the query that needed it.
+pub async fn github_token_accepted() -> bool {
+	static ACCEPTED: tokio::sync::OnceCell<bool> = tokio::sync::OnceCell::const_new();
+	*ACCEPTED
+		.get_or_init(|| async {
+			let (Ok(Some(token)), Ok(client)) = (github_token(), client()) else {
+				return true;
+			};
+			let response = client
+				.get("https://api.github.com/rate_limit")
+				.header("Accept", "application/vnd.github+json")
+				.bearer_auth(token)
+				.send()
+				.await;
+			!matches!(response, Ok(r) if r.status() == reqwest::StatusCode::UNAUTHORIZED)
+		})
+		.await
+}
+
 /// The error for a token GitHub rejects.
 pub const REJECTED_TOKEN: &str = "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it";
 

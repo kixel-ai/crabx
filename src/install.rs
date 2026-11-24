@@ -2,8 +2,8 @@ use crate::{
 	cache::{self, Cache, Record},
 	cli::{Args, Spec},
 	fetchers::{
-		self,
-		Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData, TargetDataErased,
+		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
+		TargetDataErased,
 	},
 	network,
 	target::TargetTriple,
@@ -199,9 +199,11 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 			AutoAbortJoinHandle::new(fetcher.clone().find()),
 		)
 		.await
-		.context("release discovery timed out")???;
-		// Checked after each candidate, so only discovery that reached GitHub's API needs the token.
+		.context("release discovery timed out")?;
+		// Checked after each candidate, even a failed one, so only discovery that reached GitHub's
+		// API needs the token.
 		ensure!(!fetchers::token_rejected(), network::REJECTED_TOKEN);
+		let found = found??;
 		if !found {
 			continue;
 		}
