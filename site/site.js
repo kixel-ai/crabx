@@ -1,7 +1,7 @@
 // Enhancements only: without this script the tabs still switch and the commands still select on click.
 
 // Pick the install command for this OS.
-const platform = navigator.userAgentData?.platform ?? navigator.platform ?? "";
+const platform = navigator.userAgentData?.platform || navigator.platform || "";
 if (/^win/i.test(platform)) document.getElementById("os-windows").checked = true;
 
 // Copy the visible command.

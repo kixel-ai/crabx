@@ -6,7 +6,7 @@
 <!-- GitHub Pages sends no custom headers, so the policy lives here: the page loads nothing from another origin. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
 <title>crabx: run Rust CLIs without compiling them</title>
-<meta name="description" content="crabx runs a crates.io CLI from its author's prebuilt release, checking the release's attestation first. No toolchain, no cargo install.">
+<meta name="description" content="crabx runs a crates.io CLI from its author's prebuilt release, verifying the release's attestations when it has them. No toolchain, no cargo install.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="site.js" defer></script>
@@ -15,7 +15,7 @@
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crabx.kixel.me/">
 <meta property="og:title" content="crabx: run Rust CLIs without compiling them">
-<meta property="og:description" content="crabx runs a crates.io CLI from its author's prebuilt release, checking the release's attestation first. No toolchain, no cargo install.">
+<meta property="og:description" content="crabx runs a crates.io CLI from its author's prebuilt release, verifying the release's attestations when it has them. No toolchain, no cargo install.">
 <!-- og.png is a 1200x630 screenshot of this page's top; retake it after changing that part. -->
 <meta property="og:image" content="https://crabx.kixel.me/og.png">
 <meta property="og:image:width" content="1200">
@@ -26,9 +26,9 @@
 <body>
 <div class="glow" aria-hidden="true"></div>
 <header class="top">
-  <!-- The lockup from assets/logo, with the wordmark in currentColor so it follows the text color. -->
-  <svg class="logo" viewBox="0 0 230 66" role="img" aria-label="crabx"><title>crabx</title><g transform="translate(0.8,-3.4)"><path d="M17 41L6 46" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><path d="M19 45L9 53" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><path d="M23 48L17 57" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><path d="M47 41L58 46" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><path d="M45 45L55 53" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><path d="M41 48L47 57" stroke="#e8590c" stroke-width="3.5" stroke-linecap="round"/><g transform="translate(16,36) rotate(-28) scale(0.42)" fill="none" stroke="#e8590c" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0V-30" stroke-width="16.7"/><path d="M-2 -28C-13 -33 -13 -49 -3 -54M2 -28C10 -31 11 -41 5 -46" stroke-width="14.3"/></g><g transform="translate(48,36) scale(-1,1) rotate(-28) scale(0.42)" fill="none" stroke="#e8590c" stroke-linecap="round" stroke-linejoin="round"><path d="M0 0V-30" stroke-width="16.7"/><path d="M-2 -28C-13 -33 -13 -49 -3 -54M2 -28C10 -31 11 -41 5 -46" stroke-width="14.3"/></g><path d="M26 29L25 21M38 29L39 21" stroke="#e8590c" stroke-width="3" stroke-linecap="round"/><circle cx="25" cy="19" r="3.5" fill="#e8590c"/><circle cx="39" cy="19" r="3.5" fill="#e8590c"/><ellipse cx="32" cy="39" rx="17.0" ry="10.5" fill="#e8590c"/><path d="M26 33.5L38 44.5M38 33.5L26 44.5" stroke="#22d3ee" stroke-width="4.2" stroke-linecap="round"/></g><g transform="translate(0,-3)" fill="none" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round"><path d="M105.19 32.29A12 12 0 1 0 105.19 47.71" stroke="currentColor"/><path d="M113.5 28V52M113.5 38C113.5 31 118.5 28 125.5 28" stroke="currentColor"/><path d="M156.75 28V52" stroke="currentColor"/><circle cx="144.75" cy="40" r="12" stroke="currentColor"/><path d="M168.5 10V52" stroke="currentColor"/><circle cx="180.5" cy="40" r="12" stroke="currentColor"/><path d="M200.25 28L224.25 52M224.25 28L200.25 52" stroke="#22d3ee"/></g></svg>
-  <!-- Icons from Simple Icons (CC0), inline so the page loads nothing from another origin. -->
+  <!-- site.yml copies assets/logo/logo-on-dark.svg here as logo.svg. -->
+  <img class="logo" src="logo.svg" alt="crabx" width="230" height="66">
+  <!-- Icons from Simple Icons 16.38.1 (CC0), inline so the page loads nothing from another origin. -->
   <div class="me">
     <a class="avatar" href="https://kixel.me"><img src="avatar.webp" alt="kixel.me" width="48" height="48"></a>
     <a href="https://github.com/kixel-ai/crabx" aria-label="GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/></svg></a>
@@ -40,9 +40,9 @@
 <main>
 <section class="hero">
   <p class="eyebrow">For Rust CLIs</p>
-  <h1>Run any Rust CLI without compiling it</h1>
+  <h1>Run Rust CLIs without compiling them</h1>
   <p class="lede"><code>crabx &lt;crate&gt;</code> runs a crates.io CLI from its author's
-  prebuilt release, checking the release's attestation first.
+  prebuilt release, verifying the release's attestations when it has them.
   <strong>No toolchain, no <code>cargo install</code>, no waiting.</strong></p>
 
   <div class="install">
@@ -58,6 +58,7 @@
       <pre class="cmd windows"><code><span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "<span class="tk-bin">irm</span> <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span></code></pre>
       <button class="copy" type="button" hidden>Copy</button>
     </div>
+    <p class="also windows">Then open a new terminal, which picks up crabx on your Path.</p>
     <p class="also">Or with npm or Cargo, then run any crate:</p>
     <div class="run more">
       <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">npm</span> install <span class="tk-flag">-g</span> @kixel/crabx</span>
@@ -113,12 +114,13 @@ Flags:
       <h3>Verify</h3>
       <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's
       trust root, and requires the signer to be the crate's repository or crabx's
-      pipeline. <strong>A bad attestation is an error, never a warning.</strong></p>
+      pipeline. <strong>A bad attestation is an error, never a warning.</strong> A release
+      with none, such as moq-relay's above, runs unverified.</p>
     </li>
     <li>
       <span class="num">03</span>
       <h3>Cache</h3>
-      <p>Keeps the verified binary per crate, version, and platform, then runs it with
+      <p>Keeps the binary per crate, version, and platform, then runs it with
       your arguments. <strong>A pinned, cached run makes no network request</strong>;
       an unpinned one updates in the background.</p>
     </li>
@@ -129,8 +131,9 @@ Flags:
   <h2 id="authors">Ship your crate's binaries</h2>
   <p class="lede">Publishing to crates.io is enough. Run <code>crabx init</code> once in your
   crate's repository: it writes one workflow that calls crabx's release pipeline, which
-  builds every crates.io version you publish for all six platforms and attaches
-  attested archives to its GitHub release.</p>
+  builds every crates.io version you publish from then on for all six platforms and
+  attaches attested archives to its GitHub release. The repository must be public and
+  be the one your crate's <code>repository</code> field names on crates.io.</p>
   <div class="run more">
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>
 <span class="d">wrote /home/you/mycrate/.github/workflows/binaries.yml; commit it and push it to main</span></code></pre>

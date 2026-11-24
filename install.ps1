@@ -56,6 +56,6 @@
 	if (($path -split ';') -notcontains $dir) {
 		[Environment]::SetEnvironmentVariable('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), 'User')
 		$env:Path = "$env:Path;$dir"
-		Write-Host "crabx install: added $dir to your PATH; restart other terminals to use it"
+		Write-Host "crabx install: added $dir to your PATH; open a new terminal to use it"
 	}
 }

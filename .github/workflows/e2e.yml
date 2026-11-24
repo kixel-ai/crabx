@@ -110,3 +110,20 @@ jobs:
           Get-Content -Raw install.ps1 | Invoke-Expression
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+
+  # The documented installer URLs and the page, as site.yml deployed them from main. Nightly
+  # only: a PR's installers aren't deployed, and the night's run comes long after Pages' 10-minute
+  # cache of any deploy expires.
+  site:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          for file in install.sh install.ps1; do
+            curl -fsSL --proto '=https' "https://crabx.kixel.me/$file" | cmp - "$file"
+          done
+          curl -fsSL --proto '=https' https://crabx.kixel.me/ | grep -q '<title>crabx'

@@ -1,5 +1,8 @@
 /* crabx.kixel.me: one page, no build step. Dark only, in the logo's orange and cyan. */
 
+/* Both fonts are OFL, subset to Latin, and copied unchanged from kixel-ai/token-max@0c8c48d
+   (site/public/fonts); upstream: github.com/floriankarsten/space-grotesk and
+   github.com/JetBrains/JetBrainsMono. */
 @font-face { font-family: "Space Grotesk"; src: url("fonts/SpaceGrotesk.woff2") format("woff2"); font-weight: 300 700; font-display: swap; }
 @font-face { font-family: "JetBrains Mono"; src: url("fonts/JetBrainsMono.woff2") format("woff2"); font-weight: 100 800; font-display: swap; }
 
@@ -133,7 +136,8 @@ h1 {
 #os-unix:focus-visible ~ .tabs label[for="os-unix"],
 #os-windows:focus-visible ~ .tabs label[for="os-windows"] { outline: 2px solid var(--link); outline-offset: 2px; }
 #os-unix:checked ~ .run .windows,
-#os-windows:checked ~ .run .unix { display: none; }
+#os-windows:checked ~ .run .unix,
+#os-unix:checked ~ .windows { display: none; }
 
 .run {
 	position: relative;
@@ -211,7 +215,7 @@ h2 { margin: 6rem 0 2rem; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 70
 .steps {
 	position: relative;
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(min(17rem, 100%), 1fr));
 	gap: 2rem;
 	margin: 0;
 	padding: 0;
@@ -246,7 +250,8 @@ h2 { margin: 6rem 0 2rem; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 70
 .steps p { margin: 0; color: var(--muted); font-size: 0.98rem; }
 .steps strong, .steps code { color: var(--ink); }
 .steps code { white-space: nowrap; }
-@media (max-width: 56rem) { .steps::before { display: none; } }
+/* Three columns need 3 x 17rem + 2 x 2rem of content plus the section's padding. */
+@media (max-width: 58rem) { .steps::before { display: none; } }
 
 .authors .lede { margin: 0 0 1.5rem; }
 
