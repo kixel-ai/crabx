@@ -27,41 +27,36 @@ TTL: with the release-age delay a release already arrives a day late, and a
 daily check spares crates.io a request on most runs. Today that request goes
 to index.crates.io, a CDN; GitHub is contacted only to install a new version.
 
+Invariants the implementation keeps, each with a test that sets the clock
+rather than reading it:
+
+- The version an unpinned run executes is chosen for the current policy, at
+  the moment it runs, from the newest index data crabx holds, on every path:
+  a warm run, a cold first resolve (today binstalk's `VersionReq::STAR` in
+  `install.rs`), and a cold `--build`, which passes Cargo an exact version
+  instead of letting it choose. The cached `latest` pointer is a hint, not
+  the answer: 0.1.0's refresh, a `0s` run or a `7d` run may have set it.
+- A version runs only if the newest index data says it isn't yanked. A
+  version first allowed by a shorter delay is checked against a fresh index
+  fetch before it runs under a longer one, so a yank made in between is
+  seen.
+- The index is fetched at most once a day per crate, with two exceptions: a
+  failed fetch backs off as today (30 seconds, doubling to 30 minutes), and a
+  version the last fetch saw as too new gets one fetch when it becomes
+  eligible. A conditional request is sent only when the index data its
+  validator stands for is cached, which 0.1.0's refresh state doesn't hold.
+- The detached refresh gets the effective policy explicitly.
+- 0.1.0 still runs on a cache 0.2.0 has used: new state goes in new files,
+  since 0.1.0 rejects unknown fields in its refresh state.
+
 Recommendations:
 
-- Check the version an unpinned run is about to execute, not only the one
-  the refresh picks: the cached `latest` pointer can hold a version too new
-  for the current policy, from 0.1.0's refresh or a `0s` run. Record each
-  entry's `pubtime`, and before executing, fall back to the newest cached
-  version the policy allows, or resolve one.
-- Pick the version before branching on `--build`, so a cold `--build` passes
-  Cargo an exact eligible version instead of letting it choose the newest.
-- Pass the effective policy to the detached refresh explicitly; it is
-  rebuilt from a command line that today drops options such as this one.
-- Recompute eligibility on every refresh, a `304` included, from the index
-  data already cached, since time passing alone makes a version eligible.
-- Keep the schedule out of the existing refresh state file: 0.1.0 rejects
-  unknown fields there, so a rollback to it on the same cache would break
-  every unpinned run. Use a separate file.
-- Store the last check's time in the refresh state and skip the refresh
-  until a day has passed. Also refresh as soon as a version the last check
-  saw, but which was too new, reaches the delay, so that version doesn't wait
-  another full day. That check is a deliberate exception to the daily limit,
-  and it fetches the index again so it sees a yank made in the meantime.
-- Keep the failure backoff as it is: a failed refresh retries after 30
-  seconds, doubling to 30 minutes, and doesn't wait a day.
-
-- Apply it on both paths that pick a version: the background refresh in
-  `network.rs`, which already filters yanked and prerelease versions, and the
-  cold first resolve in `install.rs`, which today asks binstalk for any
-  version (`VersionReq::STAR`).
 - crates.io records `pubtime` for every version, back to 2014's (checked
   2026-11-24 on `serde` and `token-max`). A version without one is an error
   naming the crate, not "old enough", and it applies only to unpinned runs.
-- If a crate has no version old enough (one published less than a day ago),
-  fail with a message naming the version and when it becomes eligible, and
-  suggest pinning it or `--minimum-release-age 0s`.
+- If a crate has no version old enough, fail with a message naming the
+  newest version and when it becomes eligible, and suggest pinning it or
+  `--minimum-release-age 0s`.
 - Accept mise's duration forms (`24h`, `7d`) and reject anything else. The
   flag goes before the crate, like crabx's other options.
 - The README says which versions an unpinned run picks, and why.
-- Unit tests set the clock rather than reading it.

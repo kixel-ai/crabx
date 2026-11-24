@@ -32,11 +32,13 @@ max.kixel.me will offer `npx @kixel/crabx install token-max`):
 
 Recommendations:
 
-- The background refresh is started through an explicit entry point, such as
-  crabx's existing refresh flag, that wins over dispatch by name. Otherwise a
-  Windows copy named `token-max.exe` that relaunches itself to refresh would
-  run the crate again instead. Test that a refresh from a launcher runs no
-  second crate invocation.
+- A launcher passes every argument to the crate, `--refresh` included, so
+  the background refresh crabx starts from a launcher is marked by
+  something no argument can produce, such as an environment variable, and
+  that marker wins over dispatch by name. Otherwise a Windows copy named
+  `token-max.exe` relaunching itself to refresh would run the crate again.
+  Test that a refresh from a launcher runs no second crate invocation, and
+  that `<crate> --refresh` reaches the crate.
 - Reserve the runner's own name: `crabx install crabx` is an error pointing
   at `crabx crabx@VERSION`, with names compared case-insensitively, since
   Windows and macOS filesystems usually are.
