@@ -93,7 +93,7 @@ class Plan(unittest.TestCase):
         def fetch(url):
             if url == r.INDEX:
                 return index(("0.1.0", False), ("0.2.0", False))
-            return None if url.endswith("/@crabx/win32-arm64/0.2.0") else b"{}"
+            return None if url.endswith("/@kixelated/crabx-win32-arm64/0.2.0") else b"{}"
 
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / "out"
@@ -117,14 +117,14 @@ class Pack(unittest.TestCase):
             self.assertEqual(main["bin"], {"crabx": "crabx.js"})
             self.assertEqual(main["optionalDependencies"], {r.platform_name(t): "1.2.3" for t in r.NPM_TARGETS})
             self.assertEqual((temp / "packages/crabx/crabx.js").read_bytes(), LAUNCHER.read_bytes())
-            linux = json.loads((temp / "packages/@crabx/linux-arm64-gnu/package.json").read_text())
+            linux = json.loads((temp / "packages/@kixelated/crabx-linux-arm64-gnu/package.json").read_text())
             self.assertEqual((linux["os"], linux["cpu"], linux["libc"]), (["linux"], ["arm64"], ["glibc"]))
-            windows = json.loads((temp / "packages/@crabx/win32-x64/package.json").read_text())
+            windows = json.loads((temp / "packages/@kixelated/crabx-win32-x64/package.json").read_text())
             self.assertNotIn("libc", windows)
-            self.assertEqual((temp / "packages/@crabx/win32-x64/bin/crabx.exe").read_text(), "x86_64-pc-windows-msvc")
+            self.assertEqual((temp / "packages/@kixelated/crabx-win32-x64/bin/crabx.exe").read_text(), "x86_64-pc-windows-msvc")
             # npm keeps the executable bit, so the launcher can run the binary as installed.
             packed = subprocess.run(
-                ["npm", "pack", "--dry-run", "--json", str(temp / "packages/@crabx/darwin-arm64")],
+                ["npm", "pack", "--dry-run", "--json", str(temp / "packages/@kixelated/crabx-darwin-arm64")],
                 check=True, capture_output=True, text=True, cwd=temp,
             )
             files = {f["path"]: f["mode"] for f in json.loads(packed.stdout)[0]["files"]}
