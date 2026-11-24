@@ -4,10 +4,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 default:
     @just --list
 
-# Lint the runner, its local fork of binstalk's fetchers, the installer, the workflows, and the quest tree.
+# Lint the runner, its local fork of binstalk's fetchers, the release scripts, the installer, the workflows, and the quest tree.
 check:
     cargo clippy --locked --all-targets -- -D warnings
     cargo fmt --all --check
+    ruff check --select F
     shellcheck install.sh
     shfmt -d install.sh
     actionlint

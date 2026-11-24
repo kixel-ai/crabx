@@ -100,16 +100,15 @@ class Pipeline(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         p.published("demo", "1.2.3", REPO)
                 else:
-                    manifest_, item = p.published("demo", "1.2.3", REPO)
+                    item = p.published("demo", "1.2.3", REPO)
                     self.assertEqual(item["sha"], ITEM["sha"])
-                    self.assertEqual(manifest_["package"]["version"], ITEM["version"])
         with patch.object(p.urllib.request, "urlopen", return_value=crate({"Cargo.toml": manifest})):
             with self.assertRaisesRegex(ValueError, "without its git commit"):
                 p.published("demo", "1.2.3", REPO)
         # Another repository's release is skipped before its source is checked.
         dirty = json.dumps({"git": {"sha1": ITEM["sha"], "dirty": True}}).encode()
         with patch.object(p.urllib.request, "urlopen", return_value=crate({"Cargo.toml": manifest, ".cargo_vcs_info.json": dirty})):
-            self.assertIsNone(p.published("demo", "1.2.3", "https://github.com/example/other")[1])
+            self.assertIsNone(p.published("demo", "1.2.3", "https://github.com/example/other"))
 
     def test_null_repository(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=["2026-01-01T00:00:00+00:00", "Cargo.toml"]), patch.object(Path, "read_text", return_value='[package]\nname="demo"'), patch.object(p, "request", return_value={"crate": {"repository": None}}):
@@ -123,7 +122,7 @@ class Pipeline(unittest.TestCase):
                 source: b"fn main() {}",
             })
             with patch.object(p.urllib.request, "urlopen", return_value=archive):
-                self.assertEqual(p.published("demo", "1.2.3", REPO)[1] is not None, expected)
+                self.assertEqual(p.published("demo", "1.2.3", REPO) is not None, expected)
 
     def test_template_name(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=["2026-01-01T00:00:00+00:00", "Cargo.toml"]), patch.object(Path, "read_text", return_value='[package]\nname="{{project-name}}"'), patch.object(p, "request") as request:

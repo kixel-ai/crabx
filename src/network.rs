@@ -223,16 +223,19 @@ pub fn spawn_refresh(spec: &Spec, args: &Args) -> Result<()> {
 			});
 		}
 	}
+	// The forked updater outlives this short-lived child, whose exit reports the fork.
+	#[cfg(unix)]
+	ensure!(
+		command.status().context("start sparse-index refresh")?.success(),
+		"start sparse-index refresh failed"
+	);
 	#[cfg(windows)]
 	{
 		use std::os::windows::process::CommandExt;
+		// DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: no console, and no console Ctrl-C.
 		command.creation_flags(0x00000008 | 0x00000200);
+		command.spawn().context("start sparse-index refresh")?;
 	}
-	let mut child = command.spawn().context("start sparse-index refresh")?;
-	#[cfg(unix)]
-	ensure!(child.wait()?.success(), "start sparse-index refresh failed");
-	#[cfg(windows)]
-	let _ = &mut child;
 	Ok(())
 }
 

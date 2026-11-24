@@ -46,7 +46,7 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 	let Some(repo) = receipt.repository.as_deref().map(repository).transpose()?.flatten() else {
 		return Ok("author release (repository does not support GitHub attestations)".into());
 	};
-	let digest = hex::encode(receipt.sha256);
+	let digest = Sha256Hash::new(receipt.sha256).to_hex();
 	let client = network::client()?;
 	// Request one bundle per page. An attestation for a different digest is never queried.
 	let endpoint = format!("https://api.github.com/repos/{repo}/attestations/sha256:{digest}");
@@ -74,53 +74,49 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 		let next = next_page(next, &url, &repo, &digest)?;
 		let file = network::spool(response, stage).await?;
 		let page: Page = serde_json::from_reader(BufReader::new(File::open(file.path())?))?;
-		if page.attestations.is_none() {
+		let Some(attestation) = page.attestations else {
 			ensure!(next.is_none(), "empty attestation page has a next page");
 			break;
-		}
-		if let Some(attestation) = page.attestations {
-			let bundle = match attestation.bundle {
-				Some(bundle) => bundle,
-				None => {
-					let url = attestation
-						.bundle_url
-						.context("attestation has neither bundle nor bundle_url")?;
-					ensure!(
-						matches!(url.scheme(), "https" | "http")
-							&& url.username().is_empty()
-							&& url.password().is_none(),
-						"invalid attestation bundle URL"
-					);
-					// External bundle storage receives no GitHub credential.
-					let response = client.get(url).send().await?.error_for_status()?;
-					let file = network::spool(response, stage).await?;
-					external_bundle(file.path())?
-				}
-			};
-			// GitHub's timestamp-only trust domain has its own CA and TSA. A
-			// public-good bundle cannot lose its log and verify under that CA.
-			let github = bundle.verification_material.tlog_entries.is_empty();
-			let root = &mut roots[usize::from(github)];
-			if root.is_none() {
-				*root = Some(if github {
-					TrustedRoot::from_tuf(TufConfig::github()).await?
-				} else {
-					TrustedRoot::production().await?
-				});
+		};
+		let bundle = match attestation.bundle {
+			Some(bundle) => bundle,
+			None => {
+				let url = attestation
+					.bundle_url
+					.context("attestation has neither bundle nor bundle_url")?;
+				ensure!(
+					matches!(url.scheme(), "https" | "http") && url.username().is_empty() && url.password().is_none(),
+					"invalid attestation bundle URL"
+				);
+				// External bundle storage receives no GitHub credential.
+				let response = client.get(url).send().await?.error_for_status()?;
+				let file = network::spool(response, stage).await?;
+				external_bundle(file.path())?
 			}
-			let verifier = Verifier::new(root.as_ref().context("no Sigstore trust root")?)?;
-			verify_bundle(
-				&verifier,
-				&bundle,
-				Artifact {
-					digest: &digest,
-					repo: &repo,
-					version,
-					asset: &receipt.url,
-				},
-			)?;
-			verified = true;
-		}
+		};
+		// GitHub's timestamp-only trust domain has its own CA and TSA. A
+		// public-good bundle cannot lose its log and verify under that CA.
+		let github = bundle.verification_material.tlog_entries.is_empty();
+		let root = match &mut roots[usize::from(github)] {
+			Some(root) => root,
+			slot => slot.insert(if github {
+				TrustedRoot::from_tuf(TufConfig::github()).await?
+			} else {
+				TrustedRoot::production().await?
+			}),
+		};
+		let verifier = Verifier::new(root)?;
+		verify_bundle(
+			&verifier,
+			&bundle,
+			Artifact {
+				digest: &digest,
+				repo: &repo,
+				version,
+				asset: &receipt.url,
+			},
+		)?;
+		verified = true;
 		let Some(next) = next else { break };
 		url = next;
 		first_page = false;
