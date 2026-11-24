@@ -111,36 +111,21 @@ jobs:
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 
-  # The documented installer URLs and the page, as Pages serves them from site.yml's last deploy.
-  # Not on pull requests, whose installers aren't deployed.
+  # The documented installer URLs and the page are served over HTTPS at crabx.kixel.me. Each
+  # file is matched by its usage line, not bytes: a failed deploy already fails site.yml, and a
+  # byte comparison races deploys. Not on pull requests, whose installers aren't deployed.
   site:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    permissions:
-      contents: read
-      actions: read
     defaults:
       run:
         shell: bash
     steps:
-      # The commit Pages serves, so an installer change landing around this run can't race it.
-      - id: deployed
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          sha=$(gh run list -R "$GITHUB_REPOSITORY" --workflow site.yml --branch main --status success -L 1 --json headSha -q '.[0].headSha')
-          [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo "no successful site.yml deploy on main" >&2; exit 1; }
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ steps.deployed.outputs.sha }}
-          persist-credentials: false
-      # The query string skips Pages' 10-minute cache of an older deploy.
       - run: |
-          for file in install.sh install.ps1; do
-            curl -fsSL --proto '=https' "https://crabx.kixel.me/$file?run=$GITHUB_RUN_ID" -o "deployed-$file"
-            cmp "deployed-$file" "$file"
+          for url in https://crabx.kixel.me/install.sh https://crabx.kixel.me/install.ps1; do
+            curl -fsSL --proto '=https' "$url" -o served
+            grep -qF "$url" served
           done
-          curl -fsSL --proto '=https' "https://crabx.kixel.me/?run=$GITHUB_RUN_ID" -o deployed-index.html
-          grep -q '<title>crabx' deployed-index.html
+          curl -fsSL --proto '=https' https://crabx.kixel.me/ -o served
+          grep -qF '<title>crabx' served

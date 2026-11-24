@@ -467,7 +467,7 @@ class Workflow(unittest.TestCase):
         for name in urls:
             self.assertIn(name or "index.html", deployed)
         page = (HERE / "site/index.html").read_text()
-        refs = re.findall(r"""(?:href|src)=["']([^"']+)""", page)
+        refs = [ref for _, ref in re.findall(r"""(?:href|src)=(["'])(.*?)\1""", page)]
         refs += [u for css in (HERE / "site").glob("*.css") for u in re.findall(r"url\(\"?([^\")]+)", css.read_text())]
         local = [r for r in refs if "://" not in r and not r.startswith("#")]
         self.assertIn("logo.svg", local)
