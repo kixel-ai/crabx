@@ -3,9 +3,8 @@
 ## Goal
 
 crabx 0.1.0 is on crates.io and npm, and both registries trust only
-`.github/workflows/release.yml` to publish what follows, so `npx crabx <crate>`,
-`bunx crabx <crate>`, `cargo install crabx`, and both installers in
-[crabx's README](/README.md) work.
+`.github/workflows/release.yml` to publish what follows, so `npm install -g @kixel/crabx`,
+`cargo install crabx`, and both installers in [crabx's README](/README.md) work.
 
 ## Plan
 
@@ -51,13 +50,23 @@ crates.io API with the maintainer's token; and
 [release.yml's run](https://github.com/kixel-ai/crabx/actions/runs/45302449030) attached all
 six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
 
+Done on 2026-11-24 (/quest-run, with the maintainer's 2FA code): the six
+`@kixel/crabx-<platform>` packages are on npm at 0.1.0, packed by `release.py` from `main` at
+`1818d86` after it verified each archive's attestation. npm refused the unscoped launcher
+`crabx` with "403 Package name too similar to existing package rax".
+
+Decided 2026-11-24 (maintainer, /quest-run): ✅ the npm launcher is `@kixel/crabx`, which
+users install once with `npm install -g @kixel/crabx` to get the plain `crabx` command;
+crabx's docs drop `npx crabx` and `bunx crabx`, since the point is running `crabx` itself
+(rejected: asking npm support to allow `crabx`; another unscoped name).
+
 ## Waiting
 
-- Maintainer: publish the npm packages, which verifies each archive's attestation first. An
-  agent can't: it needs the maintainer's npm login and 2FA. Run it from a checkout of `main`
-  that has [#14](https://github.com/kixel-ai/crabx/pull/14), since `release.py` names the
-  packages and copies `npm/crabx.js` from the checkout; the one at `f1d6151` still names
-  `@crabx/*`. Check `npx crabx --version` prints `crabx 0.1.0`.
+- Maintainer: publish the launcher `@kixel/crabx`; `release.py publish` skips the six
+  platform packages npm already has. An agent can't: it needs the maintainer's npm login
+  and 2FA. Run it from a checkout of `main` that names the launcher `@kixel/crabx`, since
+  `release.py` names the packages and copies `npm/crabx.js` from the checkout. Check
+  `npm install -g @kixel/crabx && crabx --version` prints `crabx 0.1.0`.
 
   ```sh
   npm login
@@ -73,7 +82,7 @@ six attested archives to `crabx-v0.1.0`, then failed at its npm job as expected.
   publishes that version.
 
   ```sh
-  for p in crabx @kixel/crabx-linux-x64-gnu @kixel/crabx-linux-arm64-gnu \
+  for p in @kixel/crabx @kixel/crabx-linux-x64-gnu @kixel/crabx-linux-arm64-gnu \
     @kixel/crabx-darwin-x64 @kixel/crabx-darwin-arm64 @kixel/crabx-win32-x64 \
     @kixel/crabx-win32-arm64; do
     npm trust github "$p" --file release.yml --repo kixel-ai/crabx --env npm --allow-publish --yes

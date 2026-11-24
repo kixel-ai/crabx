@@ -116,10 +116,10 @@ class Pack(unittest.TestCase):
             temp = Path(temp)
             archives(temp / "archives", "1.2.3")
             r.pack("1.2.3", temp / "archives", temp / "packages")
-            main = json.loads((temp / "packages/crabx/package.json").read_text())
+            main = json.loads((temp / "packages/@kixel/crabx/package.json").read_text())
             self.assertEqual(main["bin"], {"crabx": "crabx.js"})
             self.assertEqual(main["optionalDependencies"], {r.platform_name(t): "1.2.3" for t in r.NPM_TARGETS})
-            self.assertEqual((temp / "packages/crabx/crabx.js").read_bytes(), LAUNCHER.read_bytes())
+            self.assertEqual((temp / "packages/@kixel/crabx/crabx.js").read_bytes(), LAUNCHER.read_bytes())
             linux = json.loads((temp / "packages/@kixel/crabx-linux-arm64-gnu/package.json").read_text())
             self.assertEqual((linux["os"], linux["cpu"], linux["libc"]), (["linux"], ["arm64"], ["glibc"]))
             windows = json.loads((temp / "packages/@kixel/crabx-win32-x64/package.json").read_text())
@@ -198,8 +198,8 @@ class Launcher(unittest.TestCase):
         self.temp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.temp)
         self.root = self.temp / "node_modules"
-        (self.root / "crabx").mkdir(parents=True)
-        shutil.copy(LAUNCHER, self.root / "crabx/crabx.js")
+        (self.root / r.LAUNCHER_NAME).mkdir(parents=True)
+        shutil.copy(LAUNCHER, self.root / r.LAUNCHER_NAME / "crabx.js")
         arch = {"x86_64": "x64", "aarch64": "arm64", "arm64": "arm64"}[os.uname().machine]
         platform = {"linux": "linux", "darwin": "darwin"}[sys.platform]
         self.package = self.root / r.platform_name(next(t for t, p in r.NPM_TARGETS.items() if p == (platform, arch)))
@@ -216,7 +216,7 @@ class Launcher(unittest.TestCase):
 
     def command(self, runtime):
         """The launcher under one of the runtimes RUNTIMES names."""
-        launcher = str(self.root / "crabx/crabx.js")
+        launcher = str(self.root / r.LAUNCHER_NAME / "crabx.js")
         return ["node", "--require", str(self.old_node), launcher] if runtime == "old node" else [runtime, launcher]
 
     def launch(self, runtime, *args):
