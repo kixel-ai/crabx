@@ -29,10 +29,25 @@ to index.crates.io, a CDN; GitHub is contacted only to install a new version.
 
 Recommendations:
 
+- Check the version an unpinned run is about to execute, not only the one
+  the refresh picks: the cached `latest` pointer can hold a version too new
+  for the current policy, from 0.1.0's refresh or a `0s` run. Record each
+  entry's `pubtime`, and before executing, fall back to the newest cached
+  version the policy allows, or resolve one.
+- Pick the version before branching on `--build`, so a cold `--build` passes
+  Cargo an exact eligible version instead of letting it choose the newest.
+- Pass the effective policy to the detached refresh explicitly; it is
+  rebuilt from a command line that today drops options such as this one.
+- Recompute eligibility on every refresh, a `304` included, from the index
+  data already cached, since time passing alone makes a version eligible.
+- Keep the schedule out of the existing refresh state file: 0.1.0 rejects
+  unknown fields there, so a rollback to it on the same cache would break
+  every unpinned run. Use a separate file.
 - Store the last check's time in the refresh state and skip the refresh
   until a day has passed. Also refresh as soon as a version the last check
   saw, but which was too new, reaches the delay, so that version doesn't wait
-  another full day.
+  another full day. That check is a deliberate exception to the daily limit,
+  and it fetches the index again so it sees a yank made in the meantime.
 - Keep the failure backoff as it is: a failed refresh retries after 30
   seconds, doubling to 30 minutes, and doesn't wait a day.
 

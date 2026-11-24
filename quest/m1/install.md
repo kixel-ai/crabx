@@ -32,6 +32,14 @@ max.kixel.me will offer `npx @kixel/crabx install token-max`):
 
 Recommendations:
 
+- The background refresh is started through an explicit entry point, such as
+  crabx's existing refresh flag, that wins over dispatch by name. Otherwise a
+  Windows copy named `token-max.exe` that relaunches itself to refresh would
+  run the crate again instead. Test that a refresh from a launcher runs no
+  second crate invocation.
+- Reserve the runner's own name: `crabx install crabx` is an error pointing
+  at `crabx crabx@VERSION`, with names compared case-insensitively, since
+  Windows and macOS filesystems usually are.
 - Install into the directory `install.sh` and `install.ps1` use
   (`CRABX_INSTALL_DIR`, else `~/.local/bin`). Handle PATH as they do:
   Windows adds the directory to the user's `Path`, and Unix says when it is
@@ -55,8 +63,12 @@ Recommendations:
 - Uninstalling means deleting the launcher; leave out an `uninstall` command
   unless the state record makes plain deletion unsafe.
 - Offer `npx @kixel/crabx install` in the README and the site's install tabs.
-- Cover it in `.github/workflows/e2e.yml` on all three OSes: `npx
-  @kixel/crabx install <crate>`, then run the crate by name from a new shell.
+- Test the PR's own build, not the registry's: the published 0.1.0 has no
+  `install`. Pack the candidate npm packages with `release.py`, and in
+  read-only PR CI install from those packages, run `crabx install <crate>`,
+  and run the crate by name from a new shell, on all three OSes.
+  [The release](/quest/m1/release-0.2.md) runs the registry command once it
+  publishes.
 
 ## Required
 
