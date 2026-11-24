@@ -27,24 +27,34 @@ TTL: with the release-age delay a release already arrives a day late, and a
 daily check spares crates.io a request on most runs. Today that request goes
 to index.crates.io, a CDN; GitHub is contacted only to install a new version.
 
+Decided 2026-11-24 (maintainer, at the review checkpoint of
+[kixel-ai/crabx#27](https://github.com/kixel-ai/crabx/pull/27)): ✅ every
+unpinned run picks its version from the cached index, the current delay and
+the current time, and the daily background fetch is the only fetch (rejected:
+extra fetches when a release turns eligible or when a longer delay applies,
+whose timing kept raising review findings). A release becomes runnable on the
+first daily fetch after it turns a day old, 24 to 48 hours after publishing.
+
 Invariants the implementation keeps, each with a test that sets the clock
 rather than reading it:
 
-- The version an unpinned run executes is chosen for the current policy, at
-  the moment it runs, from the newest index data crabx holds, on every path:
-  a warm run, a cold first resolve (today binstalk's `VersionReq::STAR` in
-  `install.rs`), and a cold `--build`, which passes Cargo an exact version
-  instead of letting it choose. The cached `latest` pointer is a hint, not
-  the answer: 0.1.0's refresh, a `0s` run or a `7d` run may have set it.
-- A version runs only if the newest index data says it isn't yanked. A
-  version first allowed by a shorter delay is checked against a fresh index
-  fetch before it runs under a longer one, so a yank made in between is
-  seen.
-- The index is fetched at most once a day per crate, with two exceptions: a
-  failed fetch backs off as today (30 seconds, doubling to 30 minutes), and a
-  version the last fetch saw as too new gets one fetch when it becomes
-  eligible. A conditional request is sent only when the index data its
-  validator stands for is cached, which 0.1.0's refresh state doesn't hold.
+- A warm unpinned run executes the newest installed version that the
+  current policy allows, at the moment it runs, by the newest index data
+  crabx holds; the background refresh installs the newest eligible version
+  for the next run. The cached `latest` pointer is a hint, not the answer,
+  since 0.1.0's refresh, a `0s` run or a `7d` run may have set it.
+- A cold run picks an exact eligible version before installing, on both
+  paths: the first resolve (today binstalk's `VersionReq::STAR` in
+  `install.rs`) and `--build`, which passes Cargo that version instead of
+  letting it choose.
+- A version runs only if the newest index data crabx holds says it isn't
+  yanked. Nothing fetches early to catch a yank or a release turning
+  eligible: the daily fetch sees both within a day, and a run waits on the
+  network only when nothing cached is eligible.
+- The index is fetched at most once a day per crate, in the background, and
+  a failed fetch backs off as today (30 seconds, doubling to 30 minutes). A
+  conditional request is sent only when the index data its validator stands
+  for is cached, which 0.1.0's refresh state doesn't hold.
 - The detached refresh gets the effective policy explicitly.
 - 0.1.0 still runs on a cache 0.2.0 has used: new state goes in new files,
   since 0.1.0 rejects unknown fields in its refresh state.
