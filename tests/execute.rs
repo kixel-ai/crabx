@@ -239,7 +239,8 @@ fn cached_runs_report_diagnostics_once_and_pins_ignore_corrupt_refresh_state() {
 		String::from_utf8_lossy(&output.stderr)
 	);
 	fs::write(root.join("latest"), "1.2.3").unwrap();
-	let retry_at = std::time::SystemTime::now() + std::time::Duration::from_secs(1800);
+	// A retry far in the future, so no updater is due whatever the clock reads.
+	let retry_at = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 40);
 	fs::write(
 		root.join("refresh.json"),
 		serde_json::to_vec(&serde_json::json!({

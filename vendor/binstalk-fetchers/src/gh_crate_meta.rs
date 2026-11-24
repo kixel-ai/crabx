@@ -670,9 +670,4 @@ impl<'c> Context<'c> {
 		debug!(?template, context=?self, "render url template");
 		Ok(Url::parse(&template.render(self)?)?)
 	}
-
-	#[cfg(test)]
-	fn render_url(&self, template: &str) -> Result<Url, FetchError> {
-		self.render_url_with(&Template::parse(template)?)
-	}
 }
