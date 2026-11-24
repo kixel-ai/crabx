@@ -76,8 +76,9 @@ Recommendations:
   read-only PR CI install from those packages, run `crabx install <crate>`,
   and run the crate by name from a new shell, on all three OSes.
   [The release](/quest/m1/release-0.2.md) runs the registry command once it
-  publishes, and the nightly e2e then installs from the npm version
-  matching the release under test (`@kixel/crabx@<version>`) and runs the crate by name from a new shell, so a packaging or
+  publishes, and the nightly e2e then installs the newest version npm has
+  published (`npm view @kixel/crabx version`), not the checkout's
+  `Cargo.toml` version, which a release in flight may not have published yet, and runs the crate by name from a new shell, so a packaging or
   PATH regression in the registry's package fails a run.
 
 ## Required

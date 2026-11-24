@@ -34,11 +34,13 @@ unpinned run picks its version from the cached index, the current delay and
 the current time, and the daily freshness check is the only index fetch
 before a version is chosen (rejected:
 extra fetches when a release turns eligible or when a longer delay applies,
-whose timing kept raising review findings). A release becomes runnable on the
-A release is eligible once it is a day old. The cached index may not list it
-until the next freshness check, up to a day later, and the first run after
-that starts its background install, so it first executes on a later run,
-typically 24 to 48 hours after publishing.
+whose timing kept raising review findings). A release is eligible once it
+is a day old. On a warm cache, the cached index may not list it until the
+next freshness check, up to a day later; a version already installed then
+runs at once, and one that isn't installs in the background for a later
+run, so a new release typically first runs 24 to 48 hours after
+publishing. A cold run selects, installs and runs an eligible release in
+one go.
 
 Invariants the implementation keeps, each with a test that sets the clock
 rather than reading it:
