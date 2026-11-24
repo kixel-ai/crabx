@@ -120,7 +120,9 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 	};
 	let gh = GhApiClient::new(
 		client.clone(),
-		network::github_token()?.map(|token| token.into_boxed_str().into()),
+		network::checked_github_token()
+			.await?
+			.map(|token| token.into_boxed_str().into()),
 	);
 	// With a token binstalk prefers GraphQL and never retries on REST, so an exhausted GraphQL
 	// budget would fail discovery; REST shares the budget trust.rs already spends on attestations.

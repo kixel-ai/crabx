@@ -47,6 +47,26 @@ pub fn github_token() -> Result<Option<String>> {
 	Ok(None)
 }
 
+/// The GitHub token, once GitHub accepts it, so a stale one fails here by name instead of
+/// being resent by every discovery candidate. The rate-limit endpoint spends no quota.
+pub async fn checked_github_token() -> Result<Option<String>> {
+	let Some(token) = github_token()? else {
+		return Ok(None);
+	};
+	let response = client()?
+		.get("https://api.github.com/rate_limit")
+		.header("Accept", "application/vnd.github+json")
+		.bearer_auth(&token)
+		.send()
+		.await?;
+	ensure!(response.status() != reqwest::StatusCode::UNAUTHORIZED, REJECTED_TOKEN);
+	response.error_for_status().context("check the GitHub token")?;
+	Ok(Some(token))
+}
+
+/// The error for a token GitHub rejects.
+pub const REJECTED_TOKEN: &str = "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it";
+
 // Spool responses to disk instead of retaining the sparse index or pages of bundles.
 pub async fn spool(mut response: Response, directory: &std::path::Path) -> Result<tempfile::NamedTempFile> {
 	let mut file = tempfile::NamedTempFile::new_in(directory)?;

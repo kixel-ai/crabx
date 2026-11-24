@@ -11,7 +11,7 @@ on:
     paths:
       - .github/workflows/e2e.yml
       - .github/workflows/crabx-build.yml
-      - pipeline/pipeline.py
+      - pipeline/**
       - tests/e2e.sh
       - release.py
       - install.ps1
@@ -76,16 +76,6 @@ jobs:
           TARGET: ${{ matrix.target }}
           EXE: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: tests/e2e.sh "archives/$ARCHIVE/crabx$EXE" "$TARGET"
-      # The documented `irm | iex`, run on this checkout's installer.
-      # Independent of the build and the live crates, so it runs whatever they did.
-      - name: install.ps1
-        if: ${{ !cancelled() && runner.os == 'Windows' }}
-        shell: powershell
-        run: |
-          $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-bin'
-          Get-Content -Raw install.ps1 | Invoke-Expression
-          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
-          & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 
   test:
     strategy:
@@ -100,3 +90,19 @@ jobs:
           persist-credentials: false
       # rustup installs rust-toolchain.toml's pinned toolchain on first use.
       - run: cargo test --locked
+
+  # The documented `irm | iex`, run on this checkout's installer. It downloads the published
+  # release, so it needs no build and runs whatever the e2e legs do.
+  install-ps1:
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - shell: powershell
+        run: |
+          $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-bin'
+          Get-Content -Raw install.ps1 | Invoke-Expression
+          if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
+          & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version

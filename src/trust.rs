@@ -71,7 +71,7 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 		}
 		ensure!(
 			response.status() != reqwest::StatusCode::UNAUTHORIZED || token.is_none(),
-			"GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it"
+			network::REJECTED_TOKEN
 		);
 		let response = response.error_for_status().context("query GitHub attestations")?;
 		let next = response.headers().get("link").map(|v| v.to_str()).transpose()?;
