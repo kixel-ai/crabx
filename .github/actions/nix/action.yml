@@ -4,6 +4,6 @@ description: Install Nix for the flake's dev shell.
 runs:
   using: composite
   steps:
-    - uses: DeterminateSystems/nix-installer-action@1d87d45818068401a10cf16bdc5f00b24994a83f # main
+    - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       with:
         determinate: false

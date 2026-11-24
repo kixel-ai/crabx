@@ -46,7 +46,7 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 	let Some(repo) = receipt.repository.as_deref().map(repository).transpose()?.flatten() else {
 		return Ok("author release (repository does not support GitHub attestations)".into());
 	};
-	let digest = hex::encode(receipt.sha256);
+	let digest = Sha256Hash::new(receipt.sha256).to_hex();
 	let client = network::client()?;
 	// Request one bundle per page. An attestation for a different digest is never queried.
 	let endpoint = format!("https://api.github.com/repos/{repo}/attestations/sha256:{digest}");
