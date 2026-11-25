@@ -16,7 +16,9 @@ The version PR bumps `version` in `Cargo.toml`, and once it lands,
 unpinned run picks.
 
 0.1.1, the first publish through `release.yml`, validates npm's trusted publishers first, so this
-release needs no npm setup. After it lands, check that `release.yml`'s npm job published
+release needs no npm setup. Before bumping, check that npm has all seven packages at 0.1.1:
+`release.py npm-plan` only publishes crates.io's newest version, so once 0.2.0 is there no
+run backfills 0.1.1. After it lands, check that `release.yml`'s npm job published
 0.2.0. Then run `npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
 `npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
