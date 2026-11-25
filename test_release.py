@@ -1,5 +1,6 @@
 """Exercise crabx's release planning, crate and npm packages, launcher, installer, and publish job offline."""
 
+from html import unescape
 import importlib.util
 import io
 import json
@@ -25,9 +26,11 @@ RUNTIMES = ("node", "bun", "old node")
 WORKFLOW = HERE / ".github/workflows/release.yml"
 
 
-def index(*entries):
-    # The index's own compact form, which install.sh reads with sed.
+def index(*entries, reverse=False):
+    # The index's own compact form, which install.sh reads with awk; its keys may come in any order.
     entries = ({"name": "crabx", "vers": v, "deps": [{"name": "dep", "req": "^1"}], "cksum": "0", "features": {}, "yanked": y} for v, y in entries)
+    if reverse:
+        entries = (dict(reversed(e.items())) for e in entries)
     return "\n".join(json.dumps(e, separators=(",", ":")) for e in entries).encode()
 
 
@@ -325,6 +328,8 @@ class Install(unittest.TestCase):
         self.bin.mkdir()
         self.served = self.temp / "served"
         self.served.mkdir()
+        self.tmp = self.temp / "tmp"
+        self.tmp.mkdir()
         (self.served / "index").write_bytes(index(("0.9.0", False), ("0.10.0", False), ("0.11.0", True), ("1.0.0-rc.1", False)))
         for version in ("0.10.0", "0.9.0"):
             name = f"crabx-x86_64-unknown-linux-gnu-v{version}"
@@ -332,6 +337,7 @@ class Install(unittest.TestCase):
         self.fake("uname", 'case $1 in -s) echo Linux ;; -m) echo x86_64 ;; esac')
         self.fake("getconf", "echo glibc 2.28")
         self.fake("curl", f"""
+echo "$*" >> {self.temp}/curl.log
 for arg; do
 	case $arg in https://*) url=$arg ;; esac
 	[ "$prev" = -o ] && out=$arg
@@ -349,6 +355,7 @@ esac""")
 
     def install(self, **env):
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.temp / "home"), **env}
+        env = {"TMPDIR": str(self.tmp), **env}
         return subprocess.run(["sh", str(HERE / "install.sh")], capture_output=True, text=True, env=env, timeout=30)
 
     def test_installs_the_newest_stable_release(self):
@@ -366,6 +373,45 @@ esac""")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(subprocess.run([self.temp / "home/.local/bin/crabx"], capture_output=True, text=True).stdout, "crabx 0.10.1+build-5\n")
 
+    def test_the_index_may_order_its_keys_any_way(self):
+        (self.served / "index").write_bytes(index(("0.9.0", False), ("0.10.0", False), ("0.11.0", True), ("1.0.0-rc.1", False), reverse=True))
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(subprocess.run([self.temp / "home/.local/bin/crabx"], capture_output=True, text=True).stdout, "crabx 0.10.0\n")
+
+    def test_every_curl_refuses_plaintext_and_old_tls(self):
+        self.assertEqual(self.install().returncode, 0)
+        calls = (self.temp / "curl.log").read_text().splitlines()
+        self.assertEqual(len(calls), 2, calls)  # The index, then the archive.
+        for call in calls:
+            self.assertIn("--proto =https --tlsv1.2", call)
+
+    def test_only_strict_semver_is_installed(self):
+        for version in ("1.2.3-01", "1.2.3+a..b", ".", "..", "01.2.3", "1.02.3", "1.2", "1.2.3.4", "1.2.3-", "1.2.3+", "1.2.3-.a", "1.2.3-a.", "1.2.3-a..b", "v1.2.3", "1.2.3\n", "1.2.3 "):
+            with self.subTest(version=version):
+                result = self.install(CRABX_VERSION=version)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("invalid version", result.stderr)
+        self.assertFalse((self.temp / "curl.log").exists(), "an invalid version reached the network")
+        # Valid ones pass validation and reach the download, which fails because they are unreleased.
+        for version in ("0.0.0", "1.2.3-0", "1.2.3-1a", "1.2.3-rc.1.x-y", "1.2.3+001", "1.2.3-rc.1+build-5.7"):
+            with self.subTest(version=version):
+                self.assertIn("may not be released yet", self.install(CRABX_VERSION=version).stderr)
+
+    def test_an_interruption_removes_every_staging_file_and_keeps_the_installed_binary(self):
+        dir = self.temp / "dir"
+        dir.mkdir()
+        (dir / "crabx").write_text("old")
+        for name, code in (("TERM", 143), ("INT", 130), ("HUP", 129)):
+            with self.subTest(signal=name):
+                # chmod runs once the binary is staged in the install directory.
+                self.fake("chmod", f'kill -{name} "$PPID"')
+                result = self.install(CRABX_VERSION="0.10.0", CRABX_INSTALL_DIR=str(dir))
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertEqual([p.name for p in dir.iterdir()], ["crabx"])
+                self.assertEqual((dir / "crabx").read_text(), "old")
+                self.assertEqual(list(self.tmp.iterdir()), [])
+
     def test_a_pinned_version_and_directory(self):
         result = self.install(CRABX_VERSION="0.9.0", CRABX_INSTALL_DIR=str(self.temp / "dir"))
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -376,6 +422,7 @@ esac""")
         self.assertEqual(result.returncode, 1)
         self.assertIn("may not be released yet", result.stderr)
         self.assertIn("invalid version", self.install(CRABX_VERSION="1.0.0/../x").stderr)
+        self.assertIn("invalid version", self.install(CRABX_VERSION="1.0.0\n2.0.0").stderr)
 
     def test_musl_and_old_glibc_fail(self):
         self.fake("getconf", "exit 1")
@@ -395,6 +442,32 @@ esac""")
         self.assertIn("for aarch64-apple-darwin", self.install(CRABX_VERSION="0.10.0").stderr)
         self.fake("uname", "case $1 in -s) echo MINGW64_NT-10.0 ;; -m) echo x86_64 ;; esac")
         self.assertIn("install.ps1", self.install().stderr)
+
+
+UNIX_INSTALL = "curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh"
+WINDOWS_INSTALL = """powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex\""""
+
+
+class PublishedCommands(unittest.TestCase):
+    """The bootstrap commands, which run unverified code from the network, carry their hardening everywhere."""
+
+    def test_readme_installers_and_e2e_carry_the_commands(self):
+        for path, command in (("README.md", UNIX_INSTALL), ("README.md", WINDOWS_INSTALL), ("install.sh", UNIX_INSTALL), ("install.ps1", WINDOWS_INSTALL), (".github/workflows/e2e.yml", UNIX_INSTALL), (".github/workflows/e2e.yml", WINDOWS_INSTALL)):
+            self.assertIn(command, (HERE / path).read_text(), path)
+
+    def test_the_site_shows_the_commands_and_the_preview_names_none(self):
+        html = (HERE / "site/index.html").read_text()
+        text = unescape(re.sub(r"<[^>]+>", "", html))
+        self.assertIn(UNIX_INSTALL, text)
+        self.assertIn(WINDOWS_INSTALL, text)
+        # og.png no longer shows a command, so its alt text must not either.
+        self.assertNotIn("curl", re.search(r'og:image:alt" content="([^"]*)"', html)[1])
+
+    def test_no_unhardened_command_remains(self):
+        for path in ("README.md", "site/index.html", ".github/workflows/e2e.yml", "install.sh", "install.ps1"):
+            text = (HERE / path).read_text()
+            self.assertNotIn("curl -fsSL", text, path)
+            self.assertNotIn("irm ", text, path)
 
 
 def jobs():
