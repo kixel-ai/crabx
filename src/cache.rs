@@ -3,6 +3,7 @@ use anyhow::{Context, Result, bail, ensure};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
+	collections::BTreeSet,
 	fs::{self, File, TryLockError},
 	io::Write,
 	path::{Path, PathBuf},
@@ -70,14 +71,22 @@ impl Cache {
 		self.root.join(version.to_string())
 	}
 
-	pub fn latest(&self) -> Result<Option<Version>> {
-		match fs::read_to_string(self.root.join("latest")) {
-			Ok(value) => Ok(Some(
-				Version::parse(value.trim()).context("corrupt latest version in cache")?,
-			)),
-			Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-			Err(e) => Err(e.into()),
+	/// The versions with a cache entry, which `load` then checks is complete.
+	// 0.1 also wrote `latest`, which another delay may have chosen, so nothing reads it.
+	pub fn installed(&self) -> Result<BTreeSet<Version>> {
+		let entries = match fs::read_dir(&self.root) {
+			Ok(entries) => entries,
+			Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+			Err(e) => return Err(e).with_context(|| format!("list {}", self.root.display())),
+		};
+		let mut versions = BTreeSet::new();
+		for entry in entries {
+			let name = entry?.file_name();
+			if let Some(version) = name.to_str().and_then(|name| Version::parse(name).ok()) {
+				versions.insert(version);
+			}
 		}
+		Ok(versions)
 	}
 
 	pub fn load(&self, version: &Version) -> Result<Option<Record>> {
@@ -152,10 +161,6 @@ impl Cache {
 			Err(TryLockError::Error(e)) => Err(e.into()),
 		}
 	}
-
-	pub fn set_latest(&self, version: &Version) -> Result<()> {
-		atomic(&self.root.join("latest"), version.to_string().as_bytes())
-	}
 }
 
 pub fn valid_binary(name: &str) -> bool {
@@ -206,9 +211,11 @@ mod tests {
 		};
 		let version = Version::new(2, 3, 4);
 		assert!(cache.load(&version).unwrap().is_none());
-		cache.set_latest(&version).unwrap();
-		assert_eq!(cache.latest().unwrap(), Some(version.clone()));
+		assert!(cache.installed().unwrap().is_empty());
+		fs::write(cache.root.join("latest"), "9.9.9").unwrap();
+		fs::create_dir(cache.root.join("install-1.0.0")).unwrap();
 		fs::create_dir(cache.version(&version)).unwrap();
+		assert_eq!(cache.installed().unwrap(), BTreeSet::from([version.clone()]));
 		let path = cache.version(&version);
 		assert!(format!("{:#}", cache.load(&version).unwrap_err()).contains(&path.display().to_string()));
 		fs::write(path.join("record.json"), "malformed").unwrap();

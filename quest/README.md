@@ -56,7 +56,7 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   runs with no network. Rejected: a check every run; a 24-hour TTL.
   Superseded 2026-11-24 (maintainer, /quest-plan in kixel-ai/token-max): the
   background check runs at most daily, and unpinned runs skip versions under 24
-  hours old; see [the release-age quest](/quest/m1/release-age.md).
+  hours old, as the [README](/README.md) describes.
 - ✅ The name `crabx`, free on crates.io, following npx, bunx, and uvx; npm's package is
   `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.

@@ -65,29 +65,18 @@ answered the first publish of a new package name with `202` and served only a `0
 placeholder for about two minutes before 0.1.0 appeared. `npm install -g @kixel/crabx` then
 installed it from the registry, and `crabx --version` printed `crabx 0.1.0`.
 
+Done on 2026-11-25 (/quest-run): [release.yml's run](https://github.com/kixel-ai/crabx/actions/runs/45600130205)
+on `main` at `48d08ef` published crabx 0.1.1 to crates.io and all seven npm packages through
+trusted publishing, each with a provenance attestation, well before the 2026-11-27 00:18 UTC
+expiry, so npm accepted every pending publisher. npm served `@kixel/crabx-win32-arm64@0.1.1`
+a few minutes after the others. On glibc 2.44, `npx @kixel/crabx@0.1.1 token-max@0.0.1
+--version` with empty crabx and npm caches printed `0.0.1`, from token-max's musl build.
+The agent Chrome session wasn't signed in to npm, so no one read the settings pages.
+
 ## Waiting
 
-- Maintainer: release.yml must publish to npm before 2026-11-27 00:18 UTC, or the npm
-  trusted publishers expire. On 2026-11-25 (maintainer's pick, /quest-plan in
-  kixel-ai/token-max), an agent added kixel-ai/crabx's `release.yml`, environment `npm`,
-  npm publish allowed, as the trusted publisher on all seven packages (`@kixel/crabx` and
-  the six `@kixel/crabx-<platform>`) through npmjs.com in the agent Chrome, with the
-  maintainer entering the 2FA codes. npm lists each as "Pending validation" until a
-  publish, which crabx 0.1.1's version bump starts on `main`: once release.yml's npm job
-  publishes 0.1.1, check each settings page and
-  `XDG_CACHE_HOME=$(mktemp -d) npx @kixel/crabx@0.1.1 token-max@0.0.1 --version` on glibc
-  Linux, which must print token-max's version from its musl build. If they expire
-  first, wait until a version is ready to publish, so a new two-day window isn't wasted, then
-  an agent deletes and re-adds only the expired ones, leaving any a publish already
-  validated, on each package's settings page or with
-  `npm trust github <package> --file release.yml --repo kixel-ai/crabx --env npm
-  --allow-publish --yes` (npm 11.15.0 or later), and the maintainer gives a 2FA code; this
-  needs the maintainer's npm session. Then rerun it with `gh workflow run release.yml -R
-  kixel-ai/crabx`, which skips what is already published. Check that release.yml's npm job publishes the
-  version and each package's settings page no longer says "Pending validation".
-
-- Maintainer: once release.yml has published a crates.io version, turn on crabx's "Require
-  trusted publishing" (Settings → Trusted Publishing), so a leaked token can't publish. An
-  agent can do this through the crates.io API with the maintainer's token, but it waits for
-  proof that the workflow's publish works. Check `trustpub_only` is `true` at
+- Maintainer: turn on crabx's "Require trusted publishing" (Settings → Trusted Publishing),
+  so a leaked token can't publish. The proof it waited for is in: release.yml published 0.1.1
+  to crates.io. An agent can do this through the crates.io API with the maintainer's token,
+  which only the maintainer can provide. Check `trustpub_only` is `true` at
   `https://crates.io/api/v1/crates/crabx`.

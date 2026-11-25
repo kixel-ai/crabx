@@ -1,14 +1,17 @@
 use crate::{
-	cache::{self, Cache},
+	cache::{self, Cache, Record},
 	cli::{Args, Spec},
+	index::{Index, MinimumAge},
+	install,
 };
 use anyhow::{Context, Result, ensure};
 use reqwest::{Client, Response};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::{
-	fs::File,
-	io::{BufReader, Read, Write},
+	fs::{self, File},
+	io::Write,
+	path::PathBuf,
 	process::{Command, Stdio},
 	time::{Duration, SystemTime},
 };
@@ -81,166 +84,152 @@ pub async fn spool(mut response: Response, directory: &std::path::Path) -> Resul
 	Ok(file)
 }
 
-#[derive(Deserialize)]
-struct IndexEntry {
-	vers: Version,
-	yanked: bool,
+/// What an unpinned run executes, or why it cannot, and whether to start a background refresh either way.
+pub struct Unpinned {
+	pub record: Result<Record>,
+	pub refresh: bool,
 }
 
-fn latest(reader: impl Read) -> Result<Version> {
-	// Ignore dependency lists as they stream past, retaining only the best version.
-	let entries = serde_json::Deserializer::from_reader(reader).into_iter::<IndexEntry>();
-	let mut latest: Option<Version> = None;
-	for entry in entries {
-		let entry = entry?;
-		if !entry.yanked && entry.vers.pre.is_empty() && latest.as_ref().is_none_or(|v| *v < entry.vers) {
-			latest = Some(entry.vers);
-		}
-	}
-	latest.context("crate has no non-yanked stable version")
+/// The release an unpinned run executes: the newest installed one `age` allows at `now` by the cached
+/// index, else the newest one it allows, installed first. Only a cache without an index fetches it.
+pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: SystemTime) -> Result<Unpinned> {
+	report_refresh_error(cache)?;
+	let index = match Index::load(cache)? {
+		Some(index) => index,
+		// Nothing cached says which release is old enough and not yanked.
+		None => runtime()?.block_on(Index::fetch(cache, name, None, now))?,
+	};
+	let chosen = (|| -> Result<_> {
+		let choice = index
+			.choose(&cache.installed()?, age, now)
+			.with_context(|| format!("choose a release of {name}"))?;
+		let record = match &choice.installed {
+			Some(version) => cache
+				.load(version)?
+				.with_context(|| format!("{} vanished", cache.version(version).display()))?,
+			None => {
+				let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
+				runtime()?.block_on(install::resolve(cache, name, version, args))?
+			}
+		};
+		Ok((record, choice.newest))
+	})();
+	Ok(match chosen {
+		Ok((record, newest)) => Unpinned {
+			refresh: index.due(now) || newest.as_ref() != Some(&record.version),
+			record: Ok(record),
+		},
+		// A stale index may be why nothing runs, so a due check still starts for the next run.
+		Err(error) => Unpinned {
+			refresh: index.due(now),
+			record: Err(error),
+		},
+	})
 }
 
-fn index_path(name: &str) -> String {
-	let name = name.to_ascii_lowercase();
-	match name.len() {
-		1 => format!("1/{name}"),
-		2 => format!("2/{name}"),
-		3 => format!("3/{}/{name}", &name[..1]),
-		_ => format!("{}/{}/{name}", &name[..2], &name[2..4]),
-	}
-}
-
-pub async fn refresh(cache: &Cache, spec: &Spec, args: &Args) -> Result<()> {
-	ensure!(spec.version.is_none(), "only unpinned crates can refresh");
+/// The detached refresh: the daily index check when due, then installing the newest release `age`
+/// allows, so the next unpinned run finds it.
+pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) -> Result<()> {
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(());
 	};
-	let mut state = Refresh::load(cache)?;
-	if !state.due(SystemTime::now()) {
+	let previous = Failure::load(cache)?;
+	let now = SystemTime::now();
+	if previous.as_ref().is_some_and(|failure| now < failure.retry_at) {
 		return Ok(());
 	}
+	let mut pending = None;
 	let result = async {
-		let mut request = client()?.get(format!("https://index.crates.io/{}", index_path(&spec.name)));
-		if let Some(etag) = &state.etag {
-			request = request.header(reqwest::header::IF_NONE_MATCH, etag);
-		}
-		let response = request.send().await?.error_for_status()?;
-		Update { cache, spec, args }.apply(&mut state, response).await
+		let index = match Index::load(cache)? {
+			Some(index) if !index.due(now) => index,
+			// A failed check leaves the index due, so only the backoff above delays its retry.
+			previous => Index::fetch(cache, name, previous, now).await?,
+		};
+		let Some(version) = index
+			.newest(age, now)
+			.with_context(|| format!("choose a release of {name}"))?
+		else {
+			return Ok(());
+		};
+		pending = Some(version.clone());
+		install::resolve(cache, name, version, args).await?;
+		Ok(())
 	}
 	.await;
-	state.finish(result.as_ref().err(), SystemTime::now());
-	state.save(cache)?;
+	Failure::save(
+		cache,
+		Failure::next(previous, result.as_ref().err(), pending, SystemTime::now()).as_ref(),
+	)?;
 	result
 }
 
-#[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct Refresh {
-	etag: Option<String>,
-	version: Option<Version>,
-	failure: Option<Failure>,
-}
-
-#[derive(Deserialize, Serialize)]
+/// A background refresh's last error, kept until a refresh succeeds.
+// 0.1's `refresh.json` rejects unknown fields, so this state lives in a file of its own.
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct Failure {
 	message: String,
+	/// The release the refresh was installing, if it got that far.
 	version: Option<Version>,
 	reported: bool,
 	delay: Duration,
 	retry_at: SystemTime,
 }
 
-impl Refresh {
-	fn load(cache: &Cache) -> Result<Self> {
-		let path = cache.root.join("refresh.json");
+impl Failure {
+	fn path(cache: &Cache) -> PathBuf {
+		cache.root.join("failure.json")
+	}
+
+	fn load(cache: &Cache) -> Result<Option<Self>> {
+		let path = Self::path(cache);
 		let file = match File::open(&path) {
 			Ok(file) => file,
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Self::default()),
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 			Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
 		};
-		let state: Self =
-			serde_json::from_reader(file).with_context(|| format!("corrupt refresh state {}", path.display()))?;
-		ensure!(
-			state.etag.is_none() || state.version.is_some(),
-			"refresh ETag has no version in {}",
-			path.display()
-		);
-		Ok(state)
+		serde_json::from_reader(file).with_context(|| format!("corrupt refresh state {}", path.display()))
 	}
 
-	fn save(&self, cache: &Cache) -> Result<()> {
-		cache::atomic(&cache.root.join("refresh.json"), &serde_json::to_vec(self)?)
+	fn save(cache: &Cache, failure: Option<&Self>) -> Result<()> {
+		let path = Self::path(cache);
+		match failure {
+			Some(failure) => cache::atomic(&path, &serde_json::to_vec(failure)?),
+			None => match fs::remove_file(&path) {
+				Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.into()),
+				_ => Ok(()),
+			},
+		}
 	}
 
-	fn due(&self, now: SystemTime) -> bool {
-		self.failure.as_ref().is_none_or(|failure| now >= failure.retry_at)
-	}
-
-	fn finish(&mut self, error: Option<&anyhow::Error>, now: SystemTime) {
-		let Some(error) = error else {
-			self.failure = None;
-			return;
-		};
-		let message = format!("{error:#}");
-		let previous = self
-			.failure
-			.as_ref()
-			.filter(|failure| failure.message == message && failure.version == self.version);
-		let delay = previous.map_or(Duration::from_secs(30), |failure| {
+	/// The state after a refresh that ended at `now`: none after a success, and a retry after 30
+	/// seconds that doubles, up to 30 minutes, while the same error repeats for the same release.
+	fn next(
+		previous: Option<Self>,
+		error: Option<&anyhow::Error>,
+		version: Option<Version>,
+		now: SystemTime,
+	) -> Option<Self> {
+		let message = format!("{:#}", error?);
+		let previous = previous.filter(|failure| failure.message == message && failure.version == version);
+		let delay = previous.as_ref().map_or(Duration::from_secs(30), |failure| {
 			failure.delay.saturating_mul(2).min(Duration::from_secs(30 * 60))
 		});
-		self.failure = Some(Failure {
+		Some(Self {
 			message,
-			version: self.version.clone(),
+			version,
 			reported: previous.is_some_and(|failure| failure.reported),
 			delay,
 			retry_at: now + delay,
-		});
+		})
 	}
 }
 
-struct Update<'a> {
-	cache: &'a Cache,
-	spec: &'a Spec,
-	args: &'a Args,
-}
-
-impl Update<'_> {
-	async fn apply(&self, state: &mut Refresh, response: Response) -> Result<()> {
-		if response.status() != reqwest::StatusCode::NOT_MODIFIED {
-			let etag = response
-				.headers()
-				.get(reqwest::header::ETAG)
-				.map(|value| value.to_str().map(str::to_owned))
-				.transpose()?;
-			let file = spool(response, &self.cache.root).await?;
-			state.version = Some(latest(BufReader::new(File::open(file.path())?))?);
-			state.etag = etag;
-		}
-		let version = state
-			.version
-			.as_ref()
-			.context("index returned 304 without a cached version")?;
-		// Publish only an installed version, retaining the working entry on failure.
-		crate::install::resolve(
-			self.cache,
-			&Spec {
-				name: self.spec.name.clone(),
-				version: Some(version.clone()),
-			},
-			self.args,
-		)
-		.await?;
-		let _lock = self.cache.lock()?;
-		self.cache.set_latest(version)?;
-		Ok(())
-	}
-}
-
-pub fn spawn_refresh(spec: &Spec, args: &Args) -> Result<()> {
+pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	let mut command = Command::new(std::env::current_exe()?);
 	command.env(crate::launcher::REFRESH, "1");
+	// The effective delay, whether it came from the flag, the environment or the default.
+	command.arg("--minimum-release-age").arg(age.to_string());
 	if args.build {
 		command.arg("--build");
 	}
@@ -300,101 +289,70 @@ fn take_refresh_error(cache: &Cache) -> Result<Option<String>> {
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(None);
 	};
-	let mut state = Refresh::load(cache)?;
-	let Some(failure) = state.failure.as_mut().filter(|failure| !failure.reported) else {
+	let Some(mut failure) = Failure::load(cache)?.filter(|failure| !failure.reported) else {
 		return Ok(None);
 	};
 	failure.reported = true;
-	let error = failure.message.clone();
-	state.save(cache)?;
-	Ok(Some(error))
+	Failure::save(cache, Some(&failure))?;
+	Ok(Some(failure.message))
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::fs;
 
 	#[test]
-	fn failed_install_keeps_latest_and_retries_after_not_modified() {
+	fn unpinned_runs_refresh_only_when_a_check_is_due_or_a_newer_release_qualifies() {
 		use clap::Parser;
-		fn response(status: &str, body: &str) -> Response {
-			let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-			let address = listener.local_addr().unwrap();
-			let wire = format!(
-				"HTTP/1.1 {status}\r\nContent-Length: {}\r\nETag: new-validator\r\nConnection: close\r\n\r\n{body}",
-				body.len()
-			);
-			let server = std::thread::spawn(move || {
-				let (mut stream, _) = listener.accept().unwrap();
-				let mut reader = BufReader::new(&mut stream);
-				let mut line = String::new();
-				loop {
-					line.clear();
-					assert!(std::io::BufRead::read_line(&mut reader, &mut line).unwrap() > 0);
-					if line == "\r\n" {
-						break;
-					}
-				}
-				stream.write_all(wire.as_bytes()).unwrap();
-			});
-			let result = runtime()
-				.unwrap()
-				.block_on(reqwest::Client::new().get(format!("http://{address}")).send())
-				.unwrap();
-			server.join().unwrap();
-			result
-		}
 		let temp = tempfile::tempdir().unwrap();
 		let cache = Cache {
 			root: temp.path().to_owned(),
 		};
-		let spec = Spec::parse("fixture").unwrap();
-		let args = Args::parse_from(["crabx", "fixture"]);
-		let update = Update {
-			cache: &cache,
-			spec: &spec,
-			args: &args,
-		};
-		cache.set_latest(&Version::new(1, 0, 0)).unwrap();
-		let mut state = Refresh {
-			etag: Some("old-validator".into()),
-			version: Some(Version::new(1, 0, 0)),
-			..Refresh::default()
-		};
-		let version = Version::new(2, 0, 0);
-		// An incomplete entry fails before network discovery.
-		fs::create_dir(cache.version(&version)).unwrap();
-		let index = r#"{"vers":"2.0.0","yanked":false}"#;
-		let error = runtime()
-			.unwrap()
-			.block_on(update.apply(&mut state, response("200 OK", index)))
-			.unwrap_err();
-		state.finish(Some(&error), SystemTime::UNIX_EPOCH);
-		state.save(&cache).unwrap();
-		let mut state = Refresh::load(&cache).unwrap();
-		assert_eq!(cache.latest().unwrap(), Some(Version::new(1, 0, 0)));
-		assert_eq!(state.etag.as_deref(), Some("new-validator"));
-		assert_eq!(state.version.as_ref(), Some(&version));
-		fs::create_dir(cache.version(&version).join("bin")).unwrap();
-		fs::write(cache.version(&version).join("bin/tool"), "fixture").unwrap();
+		let entry = cache.version(&Version::new(1, 2, 3));
+		fs::create_dir_all(entry.join("bin")).unwrap();
+		fs::write(entry.join("bin/tool"), "fixture").unwrap();
 		fs::write(
-			cache.version(&version).join("record.json"),
-			r#"{"version":"2.0.0","bins":["tool"],"source":"fixture"}"#,
+			entry.join("record.json"),
+			r#"{"version":"1.2.3","bins":["tool"],"source":"fixture"}"#,
 		)
 		.unwrap();
-		runtime()
-			.unwrap()
-			.block_on(update.apply(&mut state, response("304 Not Modified", "")))
-			.unwrap();
-		state.finish(None, SystemTime::UNIX_EPOCH);
-		assert_eq!(cache.latest().unwrap(), Some(version));
-		assert!(state.failure.is_none());
-		runtime()
-			.unwrap()
-			.block_on(update.apply(&mut state, response("304 Not Modified", "")))
-			.unwrap();
-		assert_eq!(state.etag.as_deref(), Some("new-validator"));
+		let checked = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+		let hour = Duration::from_secs(3600);
+		fs::write(
+			cache.root.join("index.json"),
+			serde_json::to_vec(&serde_json::json!({
+				"etag": null,
+				"checked": checked,
+				"releases": [
+					{ "version": "1.3.0", "published": checked - hour },
+					{ "version": "1.2.3", "published": checked - hour * 48 },
+				],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+		let args = Args::parse_from(["crabx", "fixture"]);
+		let run = |age: &str, now| {
+			let run = unpinned(&cache, "fixture", &args, age.parse().unwrap(), now).unwrap();
+			(run.record.unwrap().version.to_string(), run.refresh)
+		};
+		// Neither a check nor an install is due.
+		assert_eq!(run("24h", checked), ("1.2.3".into(), false));
+		assert_eq!(run("24h", checked + hour * 22), ("1.2.3".into(), false));
+		// 1.3.0 qualifies before the next check: install it in the background.
+		assert_eq!(run("24h", checked + hour * 23), ("1.2.3".into(), true));
+		assert_eq!(run("0s", checked), ("1.2.3".into(), true));
+		// The daily check is due, whatever is installed.
+		assert_eq!(run("2d", checked + hour * 24), ("1.2.3".into(), true));
+		// A run that cannot choose still starts the due check, which may be what it lacks.
+		let failed = |now| {
+			let run = unpinned(&cache, "fixture", &args, "1w".parse().unwrap(), now).unwrap();
+			(run.record.unwrap_err().to_string(), run.refresh)
+		};
+		let (error, refresh) = failed(checked);
+		assert!(error.starts_with("no release of fixture is 1w old yet"), "{error}");
+		assert!(!refresh);
+		assert!(failed(checked + hour * 24).1);
 	}
 
 	#[test]
@@ -405,11 +363,9 @@ mod tests {
 		};
 		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
 		let error = anyhow::anyhow!("no release for host");
-		let mut state = Refresh::default();
-		state.finish(Some(&error), now);
-		assert!(!state.due(now + Duration::from_secs(29)));
-		assert!(state.due(now + Duration::from_secs(30)));
-		state.save(&cache).unwrap();
+		let failure = Failure::next(None, Some(&error), None, now).unwrap();
+		assert_eq!(failure.retry_at, now + Duration::from_secs(30));
+		Failure::save(&cache, Some(&failure)).unwrap();
 		let lock = cache.try_refresh_lock().unwrap().unwrap();
 		assert!(take_refresh_error(&cache).unwrap().is_none());
 		drop(lock);
@@ -418,42 +374,26 @@ mod tests {
 			Some("no release for host")
 		);
 		assert!(take_refresh_error(&cache).unwrap().is_none());
-		let mut state = Refresh::load(&cache).unwrap();
-		state.finish(Some(&error), now + Duration::from_secs(30));
-		assert!(!state.due(now + Duration::from_secs(89)));
-		assert!(state.due(now + Duration::from_secs(90)));
-		state.save(&cache).unwrap();
+		// A repeat keeps its report and doubles its delay.
+		let later = now + Duration::from_secs(30);
+		let failure = Failure::next(Failure::load(&cache).unwrap(), Some(&error), None, later).unwrap();
+		assert_eq!(failure.retry_at, later + Duration::from_secs(60));
+		Failure::save(&cache, Some(&failure)).unwrap();
 		assert!(take_refresh_error(&cache).unwrap().is_none());
+		let mut failure = Some(failure);
 		for _ in 0..20 {
-			state.finish(Some(&error), now);
+			failure = Failure::next(failure, Some(&error), None, now);
 		}
-		assert_eq!(state.failure.as_ref().unwrap().delay, Duration::from_secs(1800));
-		state.version = Some(Version::new(2, 0, 0));
-		state.finish(Some(&error), now);
-		assert_eq!(state.failure.as_ref().unwrap().delay, Duration::from_secs(30));
-		state.save(&cache).unwrap();
+		assert_eq!(failure.as_ref().unwrap().delay, Duration::from_secs(1800));
+		// A newly chosen release, or a different error, starts over and reports again.
+		let failure = Failure::next(failure, Some(&error), Some(Version::new(2, 0, 0)), now).unwrap();
+		assert_eq!(failure.delay, Duration::from_secs(30));
+		assert!(!failure.reported);
+		Failure::save(&cache, Some(&failure)).unwrap();
 		assert!(take_refresh_error(&cache).unwrap().is_some());
-		state.finish(None, now);
-		assert!(state.due(now));
-		assert!(state.failure.is_none());
-	}
-
-	#[test]
-	fn sparse_index_selects_semver_instead_of_line_order() {
-		let input = br#"{"vers":"2.0.0","yanked":false,"deps":[{"large":"ignored"}]}
-            {"vers":"9.0.0-beta.1","yanked":false}
-            {"vers":"10.0.0","yanked":true}
-            {"vers":"1.0.0","yanked":false}"#;
-		assert_eq!(latest(&input[..]).unwrap(), Version::new(2, 0, 0));
-		assert!(latest(&b"{\"vers\":\"oops\",\"yanked\":false}"[..]).is_err());
-		assert!(latest(&b""[..]).is_err());
-		for (name, path) in [
-			("A", "1/a"),
-			("AB", "2/ab"),
-			("AbC", "3/a/abc"),
-			("crabx", "cr/ab/crabx"),
-		] {
-			assert_eq!(index_path(name), path);
-		}
+		assert!(Failure::next(Some(failure), None, None, now).is_none());
+		Failure::save(&cache, None).unwrap();
+		assert!(Failure::load(&cache).unwrap().is_none());
+		Failure::save(&cache, None).unwrap();
 	}
 }

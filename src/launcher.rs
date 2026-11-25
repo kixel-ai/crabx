@@ -110,8 +110,12 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	// a concurrent relink can't pair a new link with its old digest; released before resolving.
 	Launcher::lock().and_then(|_lock| check(&dir, &name, &path))?;
 	// A typo, a crate with no usable release, or an ambiguous binary fails now, not on the first run.
+	let age = parsed.minimum_release_age()?;
 	let cache = cache::Cache::new(&spec, parsed.mode())?;
-	let record = network::runtime()?.block_on(install::resolve(&cache, &spec, &parsed))?;
+	let record = match &spec.version {
+		Some(version) => network::runtime()?.block_on(install::resolve(&cache, &spec.name, version, &parsed))?,
+		None => network::unpinned(&cache, &spec.name, &parsed, age, std::time::SystemTime::now())?.record?,
+	};
 	record.binary(parsed.bin.as_deref(), &spec.name)?;
 	// One install at a time, so each record names the file its launcher holds. Taken only after
 	// resolving, so a build script that runs `crabx install` can't wait on its own parent.

@@ -44,7 +44,7 @@ fn stderr(output: &Output) -> String {
 	String::from_utf8_lossy(&output.stderr).into_owned()
 }
 
-/// Cache `fixture@1.2.3`, a program that prints its arguments and exits 37.
+/// Cache `fixture@1.2.3` and an index naming it, a program that prints its arguments and exits 37.
 fn setup(temp: &Path) -> PathBuf {
 	let source = temp.join("fixture.rs");
 	fs::write(
@@ -69,7 +69,19 @@ fn setup(temp: &Path) -> PathBuf {
 		r#"{"version":"1.2.3","bins":["fixture"],"source":"fixture"}"#,
 	)
 	.unwrap();
-	fs::write(root.join("latest"), "1.2.3").unwrap();
+	// An index, due for its daily check, whose only release is past the default age.
+	let day = Duration::from_secs(24 * 3600);
+	let now = std::time::SystemTime::now();
+	fs::write(
+		root.join("index.json"),
+		serde_json::to_vec(&serde_json::json!({
+			"etag": null,
+			"checked": now - 2 * day,
+			"releases": [{ "version": "1.2.3", "published": now - 3 * day }],
+		}))
+		.unwrap(),
+	)
+	.unwrap();
 	root
 }
 
@@ -178,8 +190,8 @@ fn a_launchers_refresh_runs_no_crate() {
 		.unwrap();
 	assert_eq!(output.status.code(), Some(1), "{}", stderr(&output));
 	assert!(output.stdout.is_empty());
-	assert!(root.join("refresh.json").is_file());
-	fs::remove_file(root.join("refresh.json")).unwrap();
+	assert!(root.join("failure.json").is_file());
+	fs::remove_file(root.join("failure.json")).unwrap();
 
 	// The refresh an unpinned run starts asks the index for a newer version rather than
 	// running the crate again.
