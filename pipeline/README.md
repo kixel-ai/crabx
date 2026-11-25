@@ -26,7 +26,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: kixel-ai/crabx/.github/workflows/crabx.yml@6905ead4b9c6a98ebbaa6517a148a95fc1197429 # pipeline-v1.0.0
+    uses: kixel-ai/crabx/.github/workflows/crabx.yml@b206ab0a5a2ca06abfc4672d1a61b182b51fc6f3 # pipeline-v1.0.1
 ```
 
 `crabx init` fills in origin's default branch and pins this release's immutable
