@@ -303,7 +303,10 @@ mod tests {
 		let query = url("https://github.com/a/b/releases/download/tool-v1.2.3/tool.tgz?X=1");
 		let encoded = url("https://github.com/a/b/releases/download/tool%2Dv1.2.3/tool.tgz");
 		assert_eq!(asset(&pinned, &[vec![query.clone()]]), pinned);
-		assert_eq!(asset(&latest, &[vec![tagged.clone()], vec![query], vec![encoded]]), tagged);
+		assert_eq!(
+			asset(&latest, &[vec![tagged.clone()], vec![query], vec![encoded]]),
+			tagged
+		);
 	}
 
 	#[test]
