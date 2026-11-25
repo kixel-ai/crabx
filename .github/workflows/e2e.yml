@@ -14,6 +14,7 @@ on:
       - pipeline/**
       - tests/e2e.sh
       - tests/install.sh
+      - tests/install-redirect.ps1
       - release.py
       - install.ps1
       - npm/**
