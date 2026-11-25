@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.100"
 description = "Run a Rust CLI from its author's release, without compiling"
 repository = "https://github.com/kixel-ai/crabx"
+homepage = "https://crabx.kixel.me"
 license = "GPL-3.0-only"
 # The npm packages, installers, pipeline, and quests ship from the repository, not inside the
 # crate; the pipeline README is the caller a test checks `crabx init` writes.

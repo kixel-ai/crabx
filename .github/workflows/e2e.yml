@@ -1,8 +1,8 @@
 name: End to end
 
 # The live checks the merge gate can't run: crabx's release build of this commit against the
-# real crates.io, GitHub, and Sigstore on every target, and its tests and Windows installer
-# off Linux. Nightly, outside the gate; a pull request that changes this check runs it too.
+# real crates.io, GitHub, and Sigstore on every target, its tests and Windows installer
+# off Linux, and the site and installers Pages serves at crabx.kixel.me. Nightly, outside the gate; a pull request that changes this check runs it too.
 on:
   schedule:
     # After release.yml's nightly run, so a new release is checked the same morning.
@@ -110,3 +110,28 @@ jobs:
           Get-Content -Raw install.ps1 | Invoke-Expression
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+      - name: Deployed installer
+        if: ${{ github.event_name != 'pull_request' }}
+        shell: powershell
+        run: |
+          $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
+          powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
+          if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed: $LASTEXITCODE" }
+          & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+
+  # The documented `curl | sh`, from crabx.kixel.me, and the page there. Not on pull requests,
+  # whose installers aren't deployed; install-ps1 runs the documented `irm | iex` the same way.
+  site:
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - run: |
+          export CRABX_INSTALL_DIR="$RUNNER_TEMP/crabx-bin"
+          curl -fsSL --proto '=https' https://crabx.kixel.me/install.sh | sh
+          "$CRABX_INSTALL_DIR/crabx" --version
+          curl -fsS --proto '=https' https://crabx.kixel.me/ -o index.html
+          grep -qF '<title>crabx' index.html
