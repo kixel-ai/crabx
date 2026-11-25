@@ -1,4 +1,5 @@
-use anyhow::{Result, bail, ensure};
+use crate::index::MinimumAge;
+use anyhow::{Context, Result, bail, ensure};
 use clap::Parser;
 use semver::Version;
 use std::ffi::OsString;
@@ -20,6 +21,10 @@ pub struct Args {
 	/// Run this binary when the crate ships several.
 	#[arg(long, value_name = "NAME")]
 	pub bin: Option<String>,
+	/// Skip an unpinned crate's releases younger than this, such as 7d, or 0s for none [env:
+	/// CRABX_MINIMUM_RELEASE_AGE] [default: 24h]
+	#[arg(long, value_name = "DURATION")]
+	pub minimum_release_age: Option<MinimumAge>,
 	/// Update the sparse-index version for the next invocation.
 	#[arg(long, hide = true)]
 	pub refresh: bool,
@@ -36,6 +41,18 @@ impl Args {
 			"quickinstall"
 		} else {
 			"author"
+		}
+	}
+
+	/// The release-age delay: the flag, else `CRABX_MINIMUM_RELEASE_AGE`, else 24 hours.
+	pub fn minimum_release_age(&self) -> Result<MinimumAge> {
+		if let Some(age) = self.minimum_release_age {
+			return Ok(age);
+		}
+		match std::env::var("CRABX_MINIMUM_RELEASE_AGE") {
+			Ok(value) => value.parse().context("invalid CRABX_MINIMUM_RELEASE_AGE"),
+			Err(std::env::VarError::NotPresent) => Ok(MinimumAge::DEFAULT),
+			Err(_) => bail!("CRABX_MINIMUM_RELEASE_AGE is not UTF-8"),
 		}
 	}
 }

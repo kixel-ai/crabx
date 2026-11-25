@@ -29,7 +29,6 @@ max.kixel.me, waits on this release.
 ## Required
 
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
-- [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
 
 ## Related
 
