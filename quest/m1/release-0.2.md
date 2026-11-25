@@ -33,10 +33,10 @@ max.kixel.me, waits on this release.
 - [Musl fallback](/quest/m0/musl-fallback.md) - runs crates with only musl Linux builds, such as token-max
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
-- [Pipeline v1.0.1](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
-- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, and revalidates legacy 0.1.x author-release cache entries in both `author` and `quickinstall` namespaces lacking the new verification marker
-- [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds network reads
-- [Build cwd isolation](/quest/m1/build-cwd.md) - isolates working directory for `--build` and background `--refresh`
+- [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
+- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, enforces GitHub origin checks across `pkg-url` and redirects, and isolates 0.2.0 entries in a policy-versioned cache namespace
+- [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds registry, network, and staging budgets
+- [Build cwd and Cargo home isolation](/quest/m1/build-cwd.md) - isolates working directory and `CARGO_HOME` for `--build` and background `--refresh`
 
 ## Related
 
