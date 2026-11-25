@@ -94,12 +94,35 @@ jobs:
     outputs:
       version: ${{ steps.plan.outputs.version }}
       publish: ${{ steps.plan.outputs.publish }}
+      install: ${{ steps.plan.outputs.install }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - id: plan
         run: python3 release.py npm-plan
+
+  # npm's crabx, installed as users install it, then a crate's launcher, run from a new shell
+  # on every OS, after the npm job below. It runs whenever npm has the version, so a rerun that
+  # published nothing still checks it, and only from 0.2.0, the first version with `crabx install`.
+  npm-check:
+    needs: [npm-plan, npm]
+    if: ${{ !cancelled() && needs.npm-plan.result == 'success' && needs.npm-plan.outputs.install == 'true' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.npm-plan.outputs.version }}
+        run: tests/install.sh fnox@1.50.0 "@kixel/crabx@$VERSION"
 
   # The one job with npm publishing rights, pinned by test_release.py. npm trusts
   # this workflow only in the npm environment, which only main may deploy to, and its

@@ -91,7 +91,10 @@ fn launchers_pass_every_argument_and_refuse_other_files() {
 	// `--refresh` and crabx's options reach the crate, pinned without a network.
 	let output = run(temp, &bin.join("fixture"), &["--refresh", "--bin", "x"]);
 	assert_eq!(output.status.code(), Some(37), "{}", stderr(&output));
-	assert_eq!(String::from_utf8_lossy(&output.stdout), "[\"--refresh\", \"--bin\", \"x\"]\n");
+	assert_eq!(
+		String::from_utf8_lossy(&output.stdout),
+		"[\"--refresh\", \"--bin\", \"x\"]\n"
+	);
 
 	// The installed crabx doesn't copy itself over itself.
 	let output = run(temp, &installed, &["install", "fixture@1.2.3"]);
@@ -111,7 +114,11 @@ fn launchers_pass_every_argument_and_refuse_other_files() {
 	std::os::unix::fs::symlink("crabx", bin.join("other")).unwrap();
 	let output = run(temp, &bin.join("other"), &["--version"]);
 	assert_eq!(output.status.code(), Some(1));
-	assert!(stderr(&output).contains("\"other\", which is no launcher"), "{}", stderr(&output));
+	assert!(
+		stderr(&output).contains("\"other\", which is no launcher"),
+		"{}",
+		stderr(&output)
+	);
 
 	// One launcher per name, and never over another program's file.
 	let elsewhere = temp.join("elsewhere");

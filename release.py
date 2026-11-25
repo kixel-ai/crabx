@@ -150,9 +150,10 @@ def missing(version):
 
 
 def npm_plan():
-    """Pick the newest stable crates.io version, and whether npm lacks any of its packages."""
+    """Pick the newest stable crates.io version, whether npm lacks any of its packages, and whether it has `crabx install` to check."""
     version = newest_stable(published())
-    output(version=version, publish="true" if missing(version) else "false")
+    has_install = tuple(int(part) for part in VERSION.fullmatch(version).group(1, 2, 3)) >= (0, 2, 0)
+    output(version=version, publish="true" if missing(version) else "false", install="true" if has_install else "false")
 
 
 def verify(archive, version):
@@ -268,8 +269,10 @@ def main():
             npm_plan()
         case ["publish", version]:
             publish(version)
+        case ["pack", version, archives, out]:
+            pack(version, Path(archives), Path(out))
         case _:
-            raise SystemExit("usage: release.py crate | nightly | npm-plan | publish VERSION")
+            raise SystemExit("usage: release.py crate | nightly | npm-plan | publish VERSION | pack VERSION ARCHIVES OUT")
 
 
 if __name__ == "__main__":

@@ -37,8 +37,7 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   Superseded for the scoped package on 2026-11-24 (maintainer, /quest-plan in
   kixel-ai/token-max), so this governs over the line above: ✅ the docs
   offer the scoped `npx @kixel/crabx install` as a one-line install, and
-  token-max's site runs `npx @kixel/crabx token-max doctor`; see
-  [`crabx install`](/quest/m1/install.md).
+  token-max's site runs `npx @kixel/crabx token-max doctor`.
 - ✅ Anything binstall resolves from the author's releases, so crates that already attach
   release assets work on day one; the pipeline primarily exists to set those assets up. Rejected: opted-in repos
   only; any crates.io crate built on demand.

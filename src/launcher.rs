@@ -88,7 +88,11 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 		parsed.command.len() == 1,
 		"crabx install takes options and then one crate; the launcher passes the arguments it is started with to the crate"
 	);
-	let arg = |arg: &OsString| arg.to_str().map(str::to_owned).context("crabx install's arguments must be UTF-8");
+	let arg = |arg: &OsString| {
+		arg.to_str()
+			.map(str::to_owned)
+			.context("crabx install's arguments must be UTF-8")
+	};
 	let krate = arg(last)?;
 	let spec = cli::Spec::parse(&krate)?;
 	ensure!(

@@ -24,13 +24,18 @@ run backfills 0.1.1. After it lands, check that `release.yml`'s npm job publishe
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
 commands in the goal, with `@kixel/crabx@0.2.0`, on an empty crabx cache, so
 a cold run resolves it rather than a warm cache's day-old index.
+`release.yml`'s `npm-check` job also runs `crabx install` from the published
+package on all three OSes.
+
+The version PR also offers `npx @kixel/crabx install` in the site's install
+tabs (`site/index.html`, beside the npm line). The site deploys from main, and
+npm's 0.1.x has no `install`, so the site can't offer it before this release.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
 
 ## Required
 
-- [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
 
 ## Related
