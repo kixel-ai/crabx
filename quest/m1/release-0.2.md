@@ -18,9 +18,9 @@ Check that `release.yml`'s npm job published 0.2.0, then on glibc Linux with
 an empty crabx cache (`XDG_CACHE_HOME` and `HOME` pointed at new directories) run
 `npx @kixel/crabx@0.2.0 crabx@0.2.0 --version`,
 `npx @kixel/crabx@0.2.0 fnox@1.50.0 --version` and
-`npx @kixel/crabx@0.2.0 install fnox@1.50.0`, then the unpinned commands in
-the goal with `@kixel/crabx@0.2.0`, so a cold run resolves through the 24h
-delay rather than a warm cache's index. `release.yml`'s `npm-check` job also
+`npx @kixel/crabx@0.2.0 install fnox@1.50.0`, then each unpinned command in
+the goal with `@kixel/crabx@0.2.0` on its own new empty cache, so a cold run
+resolves through the 24h delay rather than reusing the pinned runs' binary. `release.yml`'s `npm-check` job also
 runs `crabx install` from the published package on all three OSes.
 
 fnox stands in for token-max, which the plan named before
