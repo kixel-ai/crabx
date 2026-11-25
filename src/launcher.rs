@@ -124,7 +124,8 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 		.map(|recorded| recorded.sha256)
 		.unwrap_or_default();
 	let mut launcher = Launcher {
-		path,
+		// Resolved, so a later install finds it through any alias, even once this one is gone.
+		path: fs::canonicalize(&dir)?.join(path.file_name().context("a launcher has no name")?),
 		args: args.iter().map(arg).collect::<Result<_>>()?,
 		sha256,
 	};
@@ -367,10 +368,10 @@ fn replace<F>(file: tempfile::NamedTempFile<F>, target: &Path) -> Result<()> {
 	#[cfg(windows)]
 	if fs::symlink_metadata(target).is_ok() {
 		// Windows can't replace a running program, but can rename it out of the way.
-		let dir = target.parent().context("a launcher has no directory")?;
+		let old = target.parent().context("a launcher has no directory")?.join(OLD);
+		fs::create_dir_all(&old).with_context(|| format!("create {}", old.display()))?;
 		let old = tempfile::Builder::new()
-			.prefix(".crabx-old-")
-			.make_in(dir, |path| fs::rename(target, path))
+			.make_in(&old, |path| fs::rename(target, path))
 			.with_context(|| format!("move {} aside", target.display()))?
 			.into_temp_path();
 		if let Err(error) = file.persist(target) {
@@ -386,15 +387,22 @@ fn replace<F>(file: tempfile::NamedTempFile<F>, target: &Path) -> Result<()> {
 	Ok(())
 }
 
+/// The directory, inside the install directory so a rename stays on its volume, where Windows
+/// installs move replaced programs aside.
+#[cfg(windows)]
+const OLD: &str = ".crabx-old";
+
 /// Delete the programs earlier installs moved aside, except those still running.
 #[cfg(windows)]
 fn sweep(dir: &Path) -> Result<()> {
-	for entry in fs::read_dir(dir)? {
-		let entry = entry?;
-		if entry.file_name().to_string_lossy().starts_with(".crabx-old-") {
-			// A program still running can't be deleted; a later install retries.
-			let _ = fs::remove_file(entry.path());
-		}
+	let old = dir.join(OLD);
+	let entries = match fs::read_dir(&old) {
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+		entries => entries.with_context(|| format!("read {}", old.display()))?,
+	};
+	for entry in entries {
+		// A program still running can't be deleted; a later install retries.
+		let _ = fs::remove_file(entry?.path());
 	}
 	Ok(())
 }
