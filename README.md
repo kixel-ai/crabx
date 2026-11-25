@@ -83,10 +83,11 @@ still runs and its background refresh still checks the index for yanks; only the
 of a new release fails, and the next run reports it.
 `--allow-quickinstall` permits cargo-quickinstall's third-party builds after the
 author's releases; those have a separate cache from the default trust policy.
-Quickinstall downloads require its minisign signature; a missing signature is an error.
+Quickinstall downloads require its minisign signature, checked against every byte before the
+archive is unpacked; a missing signature is an error.
 
 For GitHub repositories, crabx checks GitHub's attestations API for the downloaded
-archive's SHA-256 before installing anything. Public Sigstore bundles verify their
+archive's SHA-256 before decompressing or installing anything. Public Sigstore bundles verify their
 certificate, SCT, signature, artifact digest, and transparency log against Sigstore's
 production trust root. GitHub's timestamp-only bundles use GitHub's separate CA and
 timestamp authority, verifying the certificate, signature, digest, and RFC 3161 time.
@@ -97,6 +98,12 @@ releases hosted outside GitHub. Binstalk's configured minisign checks remain ena
 discovery and attestations; they are sent only to GitHub's API, `api.github.com`. crabx downloads
 release archives without them, so releases from private GitHub repositories count as
 missing; `--build` compiles those crates.
+
+Every download has a budget, and exceeding one is an error. A release archive stages at most
+512 MiB and unpacks to at most 2 GiB and 10,000 files and directories, never unpacking links. A
+`.crate` is at most 64 MiB, checked against crates.io's index checksum before it is decompressed,
+and a sparse-index file at most 16 MiB. Signatures are at most 64 KiB, and attestations at most
+32 pages of 4 MiB, verified within two minutes.
 
 Workflow certificates must name the crate's repository and either that repository's
 workflow or crabx's reusable pipeline, `.github/workflows/crabx.yml` in this repository. Source refs must be tags or branches, excluding
@@ -151,7 +158,7 @@ once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, 
 at most 30 minutes; a successful refresh resets that delay, and only a successful check
 counts toward the daily limit. Conditional index requests retain their validator even when
 installation fails. Installing a release also makes the requests binstalk or Cargo need,
-such as binstalk's own read of the crate's index entry. Release requests have a
+and crabx's own bounded read of the crate's index entry and `.crate` for its manifest. Release requests have a
 five-minute total timeout and a 30-second read timeout.
 
 Unix uses `exec`, preserving the PID, arguments, standard streams, signals, and exit

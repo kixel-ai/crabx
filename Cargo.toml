@@ -19,20 +19,29 @@ binstalk-bins = "0.8.0"
 binstalk-downloader = { version = "0.14.2", default-features = false, features = ["static", "rustls", "zlib-rs"] }
 binstalk-git-repo-api = "0.5.54"
 binstalk-types = "0.11.0"
+bzip2 = "0.6.1"
 bytes = "1.12.1"
 compact_str = "0.10.0"
+# Already in the tree through binstalk-registry; crabx reads crates.io's manifests itself to bound them.
+cargo_toml = "1.0.1"
 either = "1.19.0"
+# The decoders binstalk-downloader extracts with, already in the tree, so crabx can unpack within budgets.
+flate2 = { version = "1.1.11", default-features = false }
 itertools = "0.15.0"
 leon = "3.0.3"
 leon-macros = "1.0.4"
+liblzma = "0.4.9"
 miette = "7.6.0"
 minisign-verify = "0.3.0"
 percent-encoding = "2.3.2"
+rc-zip-sync = "4.4.2"
 sha2 = "0.11.1"
 strum = "0.28.0"
+tar = { package = "binstall-tar", version = "0.4.42" }
 thiserror = "2.0.21"
 tracing = "0.1.44"
 url = "2.5.8"
+zstd = { version = "0.14.4", default-features = false }
 anyhow = "1.0.104"
 binstalk = { version = "0.31.0", default-features = false, features = ["rustls", "static", "zlib-rs"] }
 clap = { version = "4.6", features = ["derive"] }

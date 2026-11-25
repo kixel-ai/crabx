@@ -38,7 +38,6 @@ max.kixel.me, waits on this release.
 ## Required
 
 - [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
-- [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds registry, network, and staging budgets
 
 ## Related
 
