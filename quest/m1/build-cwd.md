@@ -2,7 +2,7 @@
 
 ## Goal
 
-Running `crabx --build` or an unpinned `crabx` invocation inside an untrusted directory never reads that directory's `.cargo/config.toml` and never holds that directory open in a detached refresh process.
+Running `crabx --build` or an unpinned `crabx` invocation inside an untrusted directory never loads that directory's `.cargo/config.toml` (even when `XDG_CACHE_HOME` points inside the checkout) and never holds the caller's directory open in a detached refresh process.
 
 ## Plan
 
@@ -12,10 +12,11 @@ Decided 2026-11-24 (maintainer, /quest-plan): ✅ ship this in `m1` for [0.2.0](
 
 Changes to make:
 
-- In `src/install.rs` (`build()`), set `command.current_dir(stage)` before running `cargo install` so an untrusted working directory's `.cargo/config.toml` (such as `[build] rustc-wrapper`, `[target.*.linker]`, or `[source.crates-io] replace-with`) cannot hijack the build or poison crabx's global `build` cache.
-- In `src/network.rs` (`spawn_refresh()`), set `command.current_dir(&cache.root)` (passing `&cache.root` into `spawn_refresh`) so the detached updater does not lock the caller's working directory on Windows/mounts or inherit an untrusted `.cargo/config.toml` during background `--build` refreshes.
+- Keep `stage` as `cargo install`'s `--root` destination, and run both `cargo install` (`src/install.rs` `build()`) and the detached `--refresh` process (`src/network.rs` `spawn_refresh()`) with a trusted working directory guaranteed to sit outside the caller's checkout ancestry (not `stage` or `cache.root`, which still have the checkout as an ancestor whenever `XDG_CACHE_HOME` points inside the workspace):
+  - Create or select an isolated directory outside the caller's `current_dir` ancestry (for example, a dedicated empty directory under the OS temp dir when outside the caller's cwd, falling back to `/` on Unix or system drive root on Windows so Cargo's upward `.cargo/config.toml` search never walks through an untrusted checkout).
+  - Verify the same isolation holds for background `--refresh --build` runs.
 - In `src/install.rs`, call `let _ = stage.keep();` after `fs::rename(stage.path(), &destination)?` succeeds, avoiding a redundant `ENOENT` cleanup on drop.
-- Add a test in `tests/execute.rs` verifying that `crabx --build` does not run `cargo` in the caller's working directory (e.g., checking `std::env::current_dir()` in the fake `CARGO` helper).
+- Add tests in `tests/execute.rs` covering both foreground `crabx --build` and background `--refresh` with `XDG_CACHE_HOME` pointed inside a temporary checkout containing a hostile `.cargo/config.toml`, proving Cargo runs outside that checkout's ancestry and never reads the checkout's config.
 
 ## Required
 

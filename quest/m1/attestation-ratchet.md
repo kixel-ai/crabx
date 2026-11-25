@@ -2,7 +2,7 @@
 
 ## Goal
 
-Once crabx has verified a GitHub attestation for a crate, a later version whose release archive has no attestation fails loudly instead of silently running unverified, and callers in CI or strict environments can pass `--require-attestation` to require verified attestations on the very first run.
+Once crabx has verified a GitHub attestation for a crate's author release in any mode, no unattested author release for that crate can execute (whether freshly downloaded or already warm in the cache), and callers in CI or strict environments can pass `--require-attestation` (carried into background updates) to require verified attestations from the very first run.
 
 ## Plan
 
@@ -12,9 +12,13 @@ Decided 2026-11-24 (maintainer, /quest-plan): ✅ plan both a zero-config TOFU a
 
 Recommendations:
 
-- Store the ratchet marker in a separate cache file under the crate's `author` cache root (never adding fields to existing `record.json` or `refresh.json`, which 0.1.0 rejects with `deny_unknown_fields`).
-- When a crate's `author` cache has recorded a verified attestation (either via that marker or an existing cached `record.json`), refuse an unattested download with a clear error naming the crate, version, and how to proceed if the author intentionally stopped attesting (such as removing the ratchet file or passing an explicit opt-out, if added).
-- Add `--require-attestation` (before the crate name, conflicting with `--build` and `--allow-quickinstall`) that refuses any release without at least one verified GitHub attestation, using a separate cache policy namespace (or checking that the cached `Record` was attested) so an unattested cached entry never satisfies `--require-attestation`.
+- Store the crate-level ratchet marker in a shared per-crate location outside mode-specific subdirectories (for example, under `crabx/v1/<host>/attested/<crate>`, never adding fields to `record.json` or `refresh.json`, which 0.1.0 rejects with `deny_unknown_fields`), updated whenever any mode (`author`, `--allow-quickinstall` when an author release wins, or `--require-attestation`) verifies a GitHub attestation for an author release of that crate.
+- Enforce the ratchet on both **downloads** and **warm-cache hits** (including cache selection for unpinned runs):
+  - If version `2.0.0` entered the cache unattested and a later pinned run verifies an attestation on `1.0.0`, a subsequent run must refuse to execute the cached unattested `2.0.0` (failing loudly with an error naming the crate, version, and how to proceed if the author intentionally stopped attesting).
+- Add `--require-attestation` (before the crate name, conflicting with `--build` and `--allow-quickinstall`):
+  - Refuse any release without at least one verified GitHub attestation, using a separate trust-policy cache namespace (or enforcing that any cached `Record` served under `--require-attestation` carries verified attestation proof) so an unattested cached entry never satisfies `--require-attestation`.
+  - Forward `--require-attestation` in `network::spawn_refresh` so detached background updates preserve the effective strict policy and update the right cache namespace.
+- Add regression tests covering: warm-cache ratchet enforcement (cached unattested 2.0.0 rejected after verifying attested 1.0.0), cross-mode ratchet sharing (`--require-attestation` or `--allow-quickinstall` author verification activating the ratchet for default runs), and `--require-attestation` handoff into `--refresh`.
 - Document both in `README.md`.
 
 ## Required

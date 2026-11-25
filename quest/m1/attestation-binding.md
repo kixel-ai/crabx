@@ -2,7 +2,7 @@
 
 ## Goal
 
-Branch-triggered GitHub attestations verify the exact crate, version, and runner environment (not only the repository and workflow path), and repository redirects or `pkg-url`-only GitHub releases cannot bypass or misbind attestation checks.
+Branch-triggered GitHub attestations verify signed crate, version, and runner-environment identity (not only the repository and workflow path), GitHub downloads discovered through vanity redirects or `pkg-url` never bypass attestation verification, and upgrading to 0.2.0 never executes weakly verified 0.1.x branch-attested cache entries without revalidation.
 
 ## Plan
 
@@ -12,16 +12,19 @@ Decided 2026-11-24 (maintainer, /quest-plan): ✅ ship this in `m1` for [0.2.0](
 
 Changes to make:
 
-- In `src/trust.rs`:
+- Signed version and runner binding on branch-ref attestations (`src/trust.rs`):
   - When the verified workflow signer matches `PIPELINE_SIGNER`, parse the verified DSSE in-toto statement's `predicate.buildDefinition` and require:
     - `externalParameters.crate` matches the requested crate name (ASCII case-insensitive),
     - `externalParameters.version` matches the requested version, and
     - `internalParameters.github.runner_environment == "github-hosted"`.
-  - For non-pipeline workflow attestations signed from a `refs/heads/*` ref, check that the in-toto `subject` entry matching the artifact's SHA-256 has a filename matching the downloaded asset's filename when `name` is present, preventing cross-crate or cross-version archive substitution within a repository.
-- Review `Receipt.repository` sourcing (`vendor/binstalk-fetchers/src/lib.rs` `get_repo_info` and `src/trust.rs`):
-  - Do not let a non-GitHub `repository` URL that redirects to GitHub establish a trusted GitHub attestation repository from an arbitrary redirect.
-  - When `Cargo.toml` omits `repository` but `pkg-url` downloads from `https://github.com/<owner>/<repo>/releases/download/...`, still query and verify GitHub attestations for `<owner>/<repo>`.
-- Add offline unit tests in `src/trust.rs` covering wrong crate, wrong version, self-hosted runner, cross-version swap on a branch ref, non-GitHub redirect, and `pkg-url`-only GitHub releases.
+  - For non-pipeline author workflows: because binstalk's `NOVERSION_FILENAMES` templates allow reusing `{name}-{target}` across release tags, an in-toto `subject[].name` check alone does not prove version binding on a branch ref. Restrict branch-ref (`refs/heads/*`) acceptance to `PIPELINE_SIGNER` (which carries signed `externalParameters.{crate, version}`, matching README's stated reason for accepting branch refs: pipeline backfill), or if a non-pipeline branch ref must be accepted, require signed release/tag evidence and document the exact boundary in `README.md`.
+- Close GitHub origin redirect and `pkg-url`-only verification gaps (`vendor/binstalk-fetchers/src/lib.rs`, `src/trust.rs`):
+  - Never allow a GitHub release download (`https://github.com/<owner>/<repo>/releases/download/...`) to skip attestation verification.
+  - Do not let an arbitrary redirect from a non-GitHub `Cargo.toml` `repository` URL silently establish a trusted GitHub attestation repository or drop verification: if `Cargo.toml`'s declared `repository` is non-GitHub and redirects to GitHub (making the GitHub repository unverified by the crates.io manifest), fail closed as an ambiguous GitHub origin unless `pkg-url` itself explicitly declares that same GitHub repository.
+  - When `Cargo.toml` omits `repository` and `pkg-url` explicitly declares `https://github.com/<owner>/<repo>/releases/download/...`, query and verify GitHub attestations for `<owner>/<repo>`.
+- Handle pre-0.2.0 cached entries safely without breaking 0.1.0 cache compatibility:
+  - Because existing `record.json` stores only a `source` string and rejects unknown fields (`deny_unknown_fields`), record a separate sidecar marker (or trust-policy schema marker) for entries verified under the stricter binding rules. When loading a cached entry whose `source` indicates a GitHub attestation but lacks the new marker, revalidate or reinstall it instead of executing a pre-0.2.0 branch-attested entry blindly.
+- Add offline unit tests in `src/trust.rs` and `src/cache.rs` covering wrong crate, wrong version, self-hosted runner, non-pipeline branch ref with reused `{name}-{target}` filename, vanity-domain redirect to GitHub, `pkg-url`-only GitHub releases, and pre-0.2.0 cached entry revalidation.
 
 ## Required
 
