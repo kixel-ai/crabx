@@ -24,7 +24,8 @@ cargo install crabx
 
 The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_VERSION` or
 `CRABX_INSTALL_DIR` to choose another. `install.ps1` also adds that directory to the user's
-`Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
+`Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`,
+so add it there yourself before running `crabx` by name. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
 Then:
 
@@ -38,6 +39,32 @@ Options go before the crate. Everything after it, including flags, spaces, and
 non-UTF-8 arguments on Unix, goes to the downloaded binary. A crate with several
 binaries uses the one named after the crate, or its only binary. Otherwise choose
 `--bin NAME`.
+From crabx 0.2.0, `crabx install` puts crabx on PATH, in the installers' directory, copying itself there when it
+runs from elsewhere, such as npm's cache. `crabx install CRATE[@VERSION]` also puts a launcher
+named after the crate there, so `moq-cli --help` runs `crabx moq-cli --help`:
+
+```sh
+crabx install moq-cli
+crabx install moq-cli@0.14.16
+crabx install --bin moq-relay moq-relay
+```
+
+A launcher is a symlink to crabx on Unix and a hard link to `crabx.exe` on Windows, which crabx
+recognizes by the name it was started under. It passes every argument to the crate, so an
+unpinned launcher updates as `crabx CRATE` does, and a pinned one stays at its version.
+Options go after `install` and before the crate. Installing resolves the crate, its release
+and attestation, and its binary at once, so a typo or a crate with no usable release fails
+then rather than on its first run. crabx records each launcher, with its version and options,
+under its state directory (`~/.local/state/crabx` on Linux, the local application data
+directory elsewhere); delete a launcher to uninstall it. It never overwrites a file it didn't
+install there, nor installs a name already installed in another directory. Bare
+`crabx install` also relinks Windows launchers to the crabx it installs; if one interrupted
+there leaves a launcher missing, repeat the command that installed it, with its `@VERSION`
+and options. On Windows it adds the directory to the user's `Path`; on Unix it only says when
+PATH lacks it, so add the directory to PATH yourself before running `crabx` or a launcher by
+name. Run a crate named
+`install` as `crabx install@VERSION`.
+
 Registry lookups and cache keys are case-insensitive. The explicit `--build` path
 preserves the typed crate spelling for Cargo. Binary names passed through `--bin`
 retain their spelling.
@@ -134,14 +161,16 @@ named `init` as `crabx init@VERSION`.
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
 `tests/e2e.sh` against the live crates.io and GitHub on every target, then offline from its cache, and runs
-`cargo test` on macOS and Windows and `install.ps1` on Windows. It also runs both documented install lines from
-crabx.kixel.me.
+`cargo test` on macOS and Windows and `install.ps1` on Windows. It packs the build's npm packages and, with
+`tests/install.sh`, runs `crabx install` from them and a crate's launcher from a new shell on Linux, macOS, and
+Windows. It also runs both documented install lines from crabx.kixel.me.
 
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
 to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the newest stable version's
 binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
-attestation first. Every step skips what is already published, so a rerun finishes a failed release.
+attestation first, then runs `tests/install.sh` on npm's version on every OS. Every step skips what is
+already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
 `.github/workflows/site.yml` serves `site/`, crabx's one-page site, and main's `install.sh` and
 `install.ps1` at [crabx.kixel.me](https://crabx.kixel.me) through GitHub Pages.
