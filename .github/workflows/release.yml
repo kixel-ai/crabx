@@ -103,8 +103,9 @@ jobs:
         run: python3 release.py npm-plan
 
   # npm's crabx, installed as users install it, then a crate's launcher, run from a new shell
-  # on every OS, after the npm job below. It runs whenever npm has the version, so a rerun that
-  # published nothing still checks it, and only from 0.2.0, the first version with `crabx install`.
+  # on every OS, after the npm job below, which returns only once npm install resolves the
+  # version. It runs whenever npm has the version, so a rerun that published nothing still
+  # checks it, and only from 0.2.0, the first version with `crabx install`.
   npm-check:
     needs: [npm-plan, npm]
     if: ${{ !cancelled() && needs.npm-plan.result == 'success' && needs.npm-plan.outputs.install == 'true' && (needs.npm.result == 'success' || needs.npm.result == 'skipped') }}

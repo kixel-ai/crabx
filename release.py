@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import tomllib
 import urllib.error
 import urllib.request
@@ -35,9 +36,9 @@ NPM_TARGETS = {
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?")
 
 
-def fetch(url):
+def fetch(url, accept="*/*"):
     """The response body, or None when the server has no such resource."""
-    request = urllib.request.Request(url, headers={"User-Agent": f"crabx-release (github.com/{REPO})"})
+    request = urllib.request.Request(url, headers={"User-Agent": f"crabx-release (github.com/{REPO})", "Accept": accept})
     try:
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.read()
@@ -149,6 +150,34 @@ def missing(version):
     return [name for name in package_names() if fetch(f"{NPM}/{name}/{stored}") is None]
 
 
+# npm install's request for a package's versions. The CDN caches the answer per Accept header.
+INSTALL_ACCEPT = "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+# How long npm may take to serve a published version. It said "a few minutes" while crabx
+# 0.2.0's packument took 76 seconds to list it.
+SERVE_BOUND = 600
+SERVE_POLL = 10
+
+
+def unserved(version):
+    """The packages whose versions, as npm install fetches them, lack version."""
+    stored = version.split("+", 1)[0]
+    names = []
+    for name in package_names():
+        body = fetch(f"{NPM}/{name.replace('/', '%2f')}", INSTALL_ACCEPT)
+        if body is None or stored not in json.loads(body).get("versions", {}):
+            names.append(name)
+    return names
+
+
+def wait_served(version):
+    """Return once npm install resolves every package at version, or fail after SERVE_BOUND seconds."""
+    deadline = time.monotonic() + SERVE_BOUND
+    while names := unserved(version):
+        if time.monotonic() >= deadline:
+            raise SystemExit(f"npm still lacks {', '.join(names)} at {version} after {SERVE_BOUND} seconds")
+        time.sleep(SERVE_POLL)
+
+
 def npm_plan():
     """Pick the newest stable crates.io version, whether npm lacks any of its packages, and whether it has `crabx install` to check."""
     version = newest_stable(published())
@@ -249,7 +278,7 @@ def download(version, directory):
 
 
 def publish(version):
-    """Publish each package npm lacks at version, the launcher last."""
+    """Publish each package npm lacks at version, the launcher last, then wait until npm install finds them all."""
     with tempfile.TemporaryDirectory() as temp:
         temp = Path(temp)
         download(version, temp / "archives")
@@ -257,6 +286,9 @@ def publish(version):
         for name in missing(version):
             # An absolute path, since npm reads a relative `a/b` as a GitHub repository.
             subprocess.run(["npm", "publish", str(temp.resolve() / "packages" / name)], check=True)
+    # npm accepts a publish minutes before install can resolve it, so npm-check, the next
+    # job, would fail on every new version.
+    wait_served(version)
 
 
 def main():

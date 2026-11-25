@@ -124,6 +124,57 @@ class Plan(unittest.TestCase):
             self.assertEqual(r.missing("0.2.0+build-5"), [])
 
 
+class Clock:
+    """A fake time module whose sleep advances its monotonic clock."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class WaitServed(unittest.TestCase):
+    """publish returns only once npm install resolves every package at the version."""
+
+    def wait(self, listed_after):
+        """Run wait_served("0.2.0+build-5"), where each package lists 0.2.0 from its time in listed_after on."""
+        clock = Clock()
+        polls = []
+
+        def fetch(url, accept="*/*"):
+            self.assertEqual(accept, r.INSTALL_ACCEPT)
+            name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
+            polls.append(name)
+            versions = {"0.1.0": {}}
+            if clock.now >= listed_after.get(name, 0):
+                versions["0.2.0"] = {}
+            return json.dumps({"name": name, "versions": versions}).encode()
+
+        with patch.object(r, "time", clock), patch.object(r, "fetch", side_effect=fetch):
+            r.wait_served("0.2.0+build-5")
+        return clock.now, polls
+
+    def test_returns_at_once_when_npm_serves_every_package(self):
+        self.assertEqual(self.wait({}), (0, r.package_names()))
+
+    def test_waits_until_every_package_is_served(self):
+        now, polls = self.wait({"@kixel/crabx": 25, "@kixel/crabx-win32-arm64": 5})
+        self.assertEqual(now, 30)
+        self.assertEqual(len(polls), 4 * len(r.package_names()))
+
+    def test_fails_naming_the_packages_still_missing_at_the_bound(self):
+        with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1})
+
+    def test_an_absent_package_is_unserved(self):
+        with patch.object(r, "fetch", return_value=None):
+            self.assertEqual(r.unserved("0.2.0"), r.package_names())
+
+
 class Pack(unittest.TestCase):
     def test_packages_select_by_platform_and_carry_the_binary(self):
         with tempfile.TemporaryDirectory() as temp:
