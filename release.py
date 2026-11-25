@@ -51,7 +51,7 @@ def published():
     """Every crabx version on crates.io, yanked included, mapped to whether it is yanked."""
     body = fetch(INDEX)
     if body is None:
-        raise SystemExit("crabx is not on crates.io yet: its first publish is by hand, as quest/m0/first-publish.md says")
+        raise SystemExit("crabx is not on crates.io: publish its first version by hand, since trusted publishing cannot create a crate")
     versions = {}
     for line in body.decode().splitlines():
         entry = json.loads(line)
