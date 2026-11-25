@@ -97,8 +97,10 @@ releases hosted outside GitHub, until crabx has verified an attestation for any 
 author releases, in any mode. From then on it refuses to cache or run an unattested author release
 of that crate, since GitHub answers an archive swapped for an unattested one as if it were never
 attested: an unpinned run runs the newest attested release it has cached instead, and its background
-update reports the refusal; a pinned one fails. The error names the marker file to delete if the
-author stopped attesting on purpose. Quickinstall's builds and `--build` are unaffected. On its first
+update reports the refusal. A pinned run fails, as does an unpinned one with no runnable attested
+release cached, such as when the only attestation found is in 0.1's cache, whose entries can't run.
+The error names the marker file to delete if the author stopped attesting on purpose, or `--build`
+to compile it instead. Quickinstall's builds and `--build` are unaffected. On its first
 run that enforces this, crabx seeds it from every attestation already in its own and 0.1's caches,
 once per crate; an attested release a crabx without this check (0.1, or a 0.2 release before it) caches
 afterward does not count until crabx verifies one itself. `--require-attestation` refuses any
