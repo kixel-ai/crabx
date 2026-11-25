@@ -26,4 +26,3 @@ Changes to make:
   - Dispose HTTP response/client resources cleanly.
   - Verify HTTPS-to-HTTP redirect rejection on Windows PowerShell 5.1 (in CI or a dedicated Windows PowerShell test).
 - Extend `test_release.py`'s `Install` tests to cover reordered JSON keys, strict SemVer rejection cases (`1.2.3-01`, `1.2.3+a..b`, `.`, `..`), `--proto`/`--tlsv1.2` flags, and cleanup of both `$temp` and the `$dir` staging file on interruption.
-- Note: [PR #23](https://github.com/kixel-ai/crabx/pull/23) (`quest/m0/site/page.md`) also updates URLs in `install.sh` and `install.ps1`; merge against `main` if it lands first.
