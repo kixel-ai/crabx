@@ -1,6 +1,6 @@
 use crate::{
 	cache::{self, Cache, Record},
-	cli::{Args, Spec},
+	cli::Args,
 	fetchers::{
 		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
 		TargetDataErased,
@@ -18,43 +18,25 @@ use binstalk_bins::{self as bins, BinFile};
 use semver::{Version, VersionReq};
 use std::{collections::BTreeSet, fs, path::Path, process::Command, str::FromStr, sync::Arc, time::Duration};
 
-pub async fn resolve(cache: &Cache, spec: &Spec, args: &Args) -> Result<Record> {
+/// Install exactly `name@version` into the cache, unless it is already there.
+pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
 	let _lock = cache.lock()?;
-	let version = match &spec.version {
-		Some(version) => Some(version.clone()),
-		None => cache.latest()?,
-	};
-	if let Some(record) = version.as_ref().map(|v| cache.load(v)).transpose()?.flatten() {
+	if let Some(record) = cache.load(version)? {
 		return Ok(record);
 	}
 	let stage = cache.stage()?;
 	fs::create_dir(stage.path().join("bin"))?;
 	let record = if args.build {
-		build(stage.path(), spec, version.as_ref())?
+		build(stage.path(), name, version)?
 	} else {
 		ensure!(
 			!cfg!(all(target_os = "linux", target_env = "musl")),
 			"prebuilt binaries require glibc on Linux; use --build on musl"
 		);
-		fetch(
-			stage.path(),
-			cache,
-			&Spec {
-				name: spec.name.clone(),
-				version,
-			},
-			args.allow_quickinstall,
-		)
-		.await?
+		fetch(stage.path(), name, version, args.allow_quickinstall).await?
 	};
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
-	let destination = cache.version(&record.version);
-	if cache.load(&record.version)?.is_none() {
-		fs::rename(stage.path(), &destination)?;
-	}
-	if spec.version.is_none() && cache.latest()?.is_none_or(|v| v <= record.version) {
-		cache.set_latest(&record.version)?;
-	}
+	fs::rename(stage.path(), cache.version(&record.version))?;
 	Ok(record)
 }
 
@@ -78,27 +60,19 @@ fn download_builder() -> reqwest::ClientBuilder {
 	.read_timeout(Duration::from_secs(30))
 }
 
-async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> Result<Record> {
+async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) -> Result<Record> {
 	let client = remote::Client::from_builder(download_builder(), 1000.try_into()?, 100.try_into()?)?;
-	let req = spec
-		.version
-		.as_ref()
-		.map(|v| VersionReq::parse(&format!("={v}")))
-		.transpose()?
-		.unwrap_or(VersionReq::STAR);
+	let req = VersionReq::parse(&format!("={version}"))?;
 	let (manifest, _) = binstalk::registry::Registry::default()
-		.fetch_crate_matched(client.clone(), &spec.name.to_ascii_lowercase(), &req)
+		.fetch_crate_matched(client.clone(), &name.to_ascii_lowercase(), &req)
 		.await?;
 	let mut package = manifest.package.context("crate manifest has no package")?;
 	ensure!(
-		package.name.eq_ignore_ascii_case(&spec.name),
+		package.name.eq_ignore_ascii_case(name),
 		"registry returned a different crate"
 	);
 	let version = package.version().clone();
 	ensure!(req.matches(&version), "registry returned a different version");
-	if let Some(record) = cache.load(&version)? {
-		return Ok(record);
-	}
 	let repository = package.repository().map(str::to_owned);
 	let meta = package.metadata.take().and_then(|m| m.binstall).unwrap_or_default();
 	let mut names = BTreeSet::new();
@@ -379,12 +353,12 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 	Ok(candidates.remove(0))
 }
 
-fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record> {
+fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
 	let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
 	let mut command = Command::new(cargo);
 	command
 		.arg("install")
-		.arg(&spec.name)
+		.arg(name)
 		.arg("--locked")
 		.arg("--target")
 		.arg(binstalk::TARGET)
@@ -393,10 +367,10 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 		.arg("--index")
 		.arg("sparse+https://index.crates.io/")
 		.env_remove("GITHUB_TOKEN")
-		.env_remove("GH_TOKEN");
-	if let Some(version) = version {
-		command.arg("--version").arg(format!("={version}"));
-	}
+		.env_remove("GH_TOKEN")
+		// The exact release the caller chose, never the newest Cargo would pick.
+		.arg("--version")
+		.arg(format!("={version}"));
 	ensure!(
 		command
 			.status()
@@ -416,14 +390,13 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 	let key = installs.installs.keys().next().context("cargo installed no crate")?;
 	let mut parts = key.split_whitespace();
 	ensure!(
-		parts.next().is_some_and(|name| name.eq_ignore_ascii_case(&spec.name)),
+		parts
+			.next()
+			.is_some_and(|installed| installed.eq_ignore_ascii_case(name)),
 		"cargo installed the wrong crate"
 	);
 	let actual = Version::parse(parts.next().context("cargo omitted the version")?)?;
-	ensure!(
-		version.is_none_or(|v| v == &actual),
-		"cargo installed a different version"
-	);
+	ensure!(version == &actual, "cargo installed a different version");
 	let mut bins = Vec::new();
 	for entry in fs::read_dir(stage.join("bin"))? {
 		let entry = entry?;
