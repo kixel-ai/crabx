@@ -10,7 +10,11 @@ use std::{
 
 pub(super) use binstalk_downloader::{
 	download::{Download, ExtractedFiles},
-	remote::{Client, StatusCode, Url},
+	remote::{
+		Client, StatusCode, Url,
+		header::{self, HeaderMap},
+		rate_limit_retry_after,
+	},
 };
 pub(super) use binstalk_git_repo_api::gh_api_client::GhApiClient;
 use binstalk_git_repo_api::gh_api_client::{GhApiError, GhReleaseArtifact, GhReleaseArtifactUrl};
@@ -101,19 +105,25 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 	remote_exists(&client, url.clone()).await
 }
 
-/// Whether `url` serves a file. A host that refuses the tokenless client (403) or never or
-/// no longer has it (404, 410) is a miss; any other failure is an error rather than a miss, so
-/// a transient failure never falls through to a less preferred candidate.
+/// Whether `url` serves a file. A host that never or no longer has it (404, 410) or refuses
+/// the tokenless client (a 403 without rate-limit headers) is a miss; any other failure is an
+/// error rather than a miss, so a transient failure never falls through to a less preferred
+/// candidate.
 pub(super) async fn remote_exists(client: &Client, url: Url) -> Result<bool, FetchError> {
 	let response = Box::pin(client.get(url).send(false)).await?;
-	if matches!(
-		response.status(),
-		StatusCode::NOT_FOUND | StatusCode::FORBIDDEN | StatusCode::GONE
-	) {
+	let status = response.status();
+	if matches!(status, StatusCode::NOT_FOUND | StatusCode::GONE)
+		|| (status == StatusCode::FORBIDDEN && !rate_limited(response.headers()))
+	{
 		return Ok(false);
 	}
 	// A redirect left unfollowed, such as one without a Location, serves no archive.
 	Ok(response.error_for_status()?.status().is_success())
+}
+
+/// Whether a 403 asks the client to wait, as GitHub's rate limits do, rather than refusing it.
+fn rate_limited(headers: &HeaderMap) -> bool {
+	headers.contains_key(header::RETRY_AFTER) || rate_limit_retry_after(headers).is_some()
 }
 
 #[derive(Debug)]
@@ -143,5 +153,26 @@ where
 {
 	pub(super) async fn flattened_join(mut self) -> Result<T, FetchError> {
 		(&mut self.0).await?.map_err(Into::into)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn only_a_bare_403_is_a_refusal() {
+		let headers = |pairs: &[(&'static str, &'static str)]| {
+			let mut map = HeaderMap::new();
+			for (name, value) in pairs {
+				map.insert(*name, header::HeaderValue::from_static(value));
+			}
+			map
+		};
+		assert!(!rate_limited(&headers(&[])));
+		assert!(!rate_limited(&headers(&[("x-ratelimit-remaining", "12")])));
+		assert!(rate_limited(&headers(&[("retry-after", "60")])));
+		assert!(rate_limited(&headers(&[("retry-after", "soon")])));
+		assert!(rate_limited(&headers(&[("x-ratelimit-remaining", "0")])));
 	}
 }

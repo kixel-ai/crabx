@@ -105,7 +105,7 @@ cases online
 # A crate shipping both runs its gnu build, and a musl-only one its static musl build.
 interpreter() {
     local headers
-    headers=$(readelf -lW "$cache/author/$1/bin/${1%/*}") || fail "readelf failed on $1"
+    headers=$(LC_ALL=C readelf -lW "$cache/author/$1/bin/${1%/*}") || fail "readelf failed on $1"
     [[ $headers == *"program interpreter"* ]]
 }
 case $target in *-linux-gnu)
