@@ -227,11 +227,9 @@ impl Failure {
 
 pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	let mut command = Command::new(std::env::current_exe()?);
+	command.env(crate::launcher::REFRESH, "1");
 	// The effective delay, whether it came from the flag, the environment or the default.
-	command
-		.arg("--refresh")
-		.arg("--minimum-release-age")
-		.arg(age.to_string());
+	command.arg("--minimum-release-age").arg(age.to_string());
 	if args.build {
 		command.arg("--build");
 	}
