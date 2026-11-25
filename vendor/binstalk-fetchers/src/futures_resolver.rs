@@ -4,8 +4,8 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 /// Given multiple futures with output = `Result<Option<T>, E>`,
-/// returns the the first one that returns either `Err(_)` or
-/// `Ok(Some(_))`.
+/// returns the first `Ok(Some(_))`, or else the first `Err(_)`, so a failed
+/// candidate never reads as a missing one.
 pub struct FuturesResolver<T, E> {
 	rx: mpsc::Receiver<Result<T, E>>,
 	tx: mpsc::Sender<Result<T, E>>,
@@ -63,16 +63,20 @@ impl<T: Send + 'static, E: Send + Debug + 'static> FuturesResolver<T, E> {
 	}
 
 	/// Return the resolution.
-	pub fn resolve(self) -> impl Future<Output = Option<T>> {
+	pub fn resolve(self) -> impl Future<Output = Result<Option<T>, E>> {
 		let mut rx = self.rx;
 		drop(self.tx);
 
 		async move {
+			let mut error = None;
 			loop {
 				match rx.recv().await {
-					Some(Ok(ret)) => return Some(ret),
-					Some(Err(err)) => warn!(?err, "Fail to resolve the future"),
-					None => return None,
+					Some(Ok(ret)) => return Ok(Some(ret)),
+					Some(Err(err)) => {
+						warn!(?err, "Fail to resolve the future");
+						error.get_or_insert(err);
+					}
+					None => return error.map_or(Ok(None), Err),
 				}
 			}
 		}
@@ -82,6 +86,19 @@ impl<T: Send + 'static, E: Send + Debug + 'static> FuturesResolver<T, E> {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn an_error_is_not_a_miss() {
+		crate::network::runtime().unwrap().block_on(async {
+			let resolver = FuturesResolver::<u8, &str>::default();
+			resolver.push(async { Ok(None) });
+			resolver.push(async { Err("candidate failed") });
+			assert_eq!(resolver.resolve().await, Err("candidate failed"));
+			let resolver = FuturesResolver::<u8, &str>::default();
+			resolver.push(async { Ok(None) });
+			assert_eq!(resolver.resolve().await, Ok(None));
+		});
+	}
 
 	#[test]
 	fn success_survives_a_queued_error() {
@@ -96,7 +113,7 @@ mod tests {
 			assert!(std::future::poll_fn(|cx| std::task::Poll::Ready(send.as_mut().poll(cx).is_pending())).await);
 			assert_eq!(resolver.rx.recv().await, Some(Err("candidate failed")));
 			send.await;
-			assert_eq!(resolver.resolve().await, Some(42));
+			assert_eq!(resolver.resolve().await, Ok(Some(42)));
 		});
 	}
 }

@@ -67,16 +67,18 @@ esac
 cache=$cache/crabx/v1/$target
 
 # pinned NETWORK SPEC MODE SOURCE [OPTIONS...]: run SPEC's --version through crabx and check its
-# output, which may add a build note or omit the name, and the trust source its cache entry records.
+# output, which may add a build note, and the trust source its cache entry records. With bare=1,
+# the program prints only its version.
 pinned() {
     local network=$1 spec=$2 mode=$3 source=$4
     shift 4
     local name=${spec%@*} version=${spec#*@}
-    local entry=$cache/$mode/$name/$version out
+    local entry=$cache/$mode/$name/$version out prefix="$name "
     if [ "$network" = online ] && [ -e "$entry" ]; then fail "$entry is already cached"; fi
     echo "e2e: $network crabx $* $spec"
     out=$("$network" "$crabx" "$@" "$spec" --version | tr -d '\r')
-    case $out in "$name $version" | "$name $version "* | "$version") ;; *) fail "$spec printed '$out'" ;; esac
+    if [ "${bare:-}" = 1 ]; then prefix=; fi
+    case $out in "$prefix$version" | "$prefix$version "*) ;; *) fail "$spec printed '$out'" ;; esac
     grep -qF "\"source\":\"$source" "$entry/record.json" || fail "$spec recorded $(cat "$entry/record.json")"
 }
 
@@ -88,7 +90,7 @@ cases() {
     pinned "$1" crabx@0.1.0 author "GitHub attestations (1) sha256:"
     pinned "$1" hyperfine@2.0.0 author "author release (no published attestation)\""
     # Ships only static musl Linux builds, which glibc Linux falls back to.
-    case $target in *-linux-gnu) pinned "$1" token-max@0.0.1 author "GitHub attestations (1) sha256:" ;; esac
+    case $target in *-linux-gnu) bare=1 pinned "$1" token-max@0.0.1 author "GitHub attestations (1) sha256:" ;; esac
     # Its author attaches no binaries; quickinstall builds it for every target crabx runs on.
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }
@@ -111,7 +113,9 @@ refused() {
     if [ -e "$cache/author/${spec%@*}/${spec#*@}" ]; then fail "$spec left a cache entry"; fi
 }
 # Only quickinstall serves it, and the quickinstall entry cached above must not satisfy the default policy.
-refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $target; use --build to compile explicitly"
+targets=$target
+case $target in *-linux-gnu) targets="$target or ${target%-gnu}-musl" ;; *-apple-darwin) targets="$target or universal-apple-darwin or universal2-apple-darwin" ;; esac
+refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $targets; use --build to compile explicitly"
 # A token GitHub rejects fails by name instead of being resent for every candidate URL.
 refused bat@0.26.1 "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it" GH_TOKEN=ghp_e2e_rejected_token
 

@@ -219,7 +219,11 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		"no usable prebuilt release for {}@{} on {}; use --build to compile explicitly",
 		package.name,
 		package.version,
-		binstalk::TARGET
+		targets
+			.iter()
+			.map(|t| t.target.as_str())
+			.collect::<Vec<_>>()
+			.join(" or ")
 	)
 }
 
@@ -286,6 +290,14 @@ impl Package {
 			ensure!(
 				sources.insert(file.source.clone()),
 				"release maps several binaries to the same file"
+			);
+			// Only a static musl build runs on a glibc host; a dynamic one needs a loader it lacks.
+			ensure!(
+				!fetcher.target().ends_with("-linux-musl") || !elf_interpreter(&file.source)?,
+				"{}@{}'s only Linux build, {}, links dynamically against musl; use --build to compile explicitly",
+				self.name,
+				self.version,
+				fetcher.target()
 			);
 			files.push(file);
 		}
@@ -421,6 +433,43 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 	})
 }
 
+/// Whether an ELF executable names a program interpreter, so it links dynamically.
+fn elf_interpreter(path: &Path) -> Result<bool> {
+	use std::io::{Read, Seek, SeekFrom};
+	const PT_INTERP: u32 = 3;
+	let mut file = fs::File::open(path)?;
+	let mut header = [0; 64];
+	file.read_exact(&mut header).context("binary is too short for ELF")?;
+	ensure!(header.starts_with(b"\x7fELF"), "binary is not ELF");
+	ensure!(header[5] == 1, "binary is not little-endian ELF");
+	let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]) as u64;
+	let u32_at = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
+	let (offset, size, count) = match header[4] {
+		1 => (
+			u32_at(&header, 0x1c) as u64,
+			u16_at(&header, 0x2a),
+			u16_at(&header, 0x2c),
+		),
+		2 => (
+			u64::from_le_bytes(header[0x20..0x28].try_into().unwrap()),
+			u16_at(&header, 0x36),
+			u16_at(&header, 0x38),
+		),
+		_ => bail!("binary has an unknown ELF class"),
+	};
+	ensure!(size >= 4, "binary has malformed ELF program headers");
+	let mut entry = [0; 4];
+	for index in 0..count {
+		file.seek(SeekFrom::Start(offset + index * size))?;
+		file.read_exact(&mut entry)
+			.context("binary has truncated ELF program headers")?;
+		if u32::from_le_bytes(entry) == PT_INTERP {
+			return Ok(true);
+		}
+	}
+	Ok(false)
+}
+
 /// Pairs every name with every target, trying a tier's targets under each name before the next tier's.
 fn ordered<'a, N, D, T>(names: &'a [(N, D)], tiers: &'a [Vec<T>]) -> impl Iterator<Item = (&'a N, &'a D, &'a T)> {
 	tiers.iter().flat_map(move |tier| {
@@ -440,9 +489,9 @@ fn host_targets() -> Vec<Vec<String>> {
 			"universal2-apple-darwin".to_owned(),
 		]);
 	}
-	if cfg!(all(target_os = "linux", target_env = "gnu")) {
-		// A static musl build runs on any glibc host, so it serves crates that ship no gnu one.
-		tiers.push(vec![binstalk::TARGET.replacen("-gnu", "-musl", 1)]);
+	// A static musl build runs on any glibc host, so it serves crates that ship no gnu one.
+	if let Some(arch) = binstalk::TARGET.strip_suffix("-linux-gnu") {
+		tiers.push(vec![format!("{arch}-linux-musl")]);
 	}
 	tiers
 }
@@ -471,9 +520,53 @@ mod tests {
 				("bin", "universal")
 			]
 		);
+		let expected: &[&[&str]] = match binstalk::TARGET {
+			"x86_64-unknown-linux-gnu" => &[&["x86_64-unknown-linux-gnu"], &["x86_64-unknown-linux-musl"]],
+			"aarch64-unknown-linux-gnu" => &[&["aarch64-unknown-linux-gnu"], &["aarch64-unknown-linux-musl"]],
+			"aarch64-apple-darwin" => &[&[
+				"aarch64-apple-darwin",
+				"universal-apple-darwin",
+				"universal2-apple-darwin",
+			]],
+			"x86_64-apple-darwin" => &[&[
+				"x86_64-apple-darwin",
+				"universal-apple-darwin",
+				"universal2-apple-darwin",
+			]],
+			target => &[&[target]],
+		};
+		assert_eq!(host_targets(), expected);
+		for target in host_targets().iter().flatten() {
+			TargetTriple::from_str(target).unwrap();
+		}
+	}
+
+	#[test]
+	fn only_dynamic_elf_names_an_interpreter() {
+		let temp = tempfile::tempdir().unwrap();
+		// A 64-bit little-endian header with two program headers at offset 64, 56 bytes each.
+		let elf = |second: u32| {
+			let mut bytes = vec![0u8; 64 + 2 * 56];
+			bytes[..6].copy_from_slice(b"\x7fELF\x02\x01");
+			bytes[0x20..0x28].copy_from_slice(&64u64.to_le_bytes());
+			bytes[0x36..0x38].copy_from_slice(&56u16.to_le_bytes());
+			bytes[0x38..0x3a].copy_from_slice(&2u16.to_le_bytes());
+			bytes[64..68].copy_from_slice(&1u32.to_le_bytes());
+			bytes[120..124].copy_from_slice(&second.to_le_bytes());
+			bytes
+		};
+		let path = temp.path().join("bin");
+		fs::write(&path, elf(3)).unwrap();
+		assert!(elf_interpreter(&path).unwrap());
+		fs::write(&path, elf(1)).unwrap();
+		assert!(!elf_interpreter(&path).unwrap());
+		fs::write(&path, &elf(3)[..100]).unwrap();
+		assert!(elf_interpreter(&path).is_err());
+		fs::write(&path, b"#!/bin/sh\n").unwrap();
+		assert!(elf_interpreter(&path).is_err());
 		if cfg!(all(target_os = "linux", target_env = "gnu")) {
-			let musl = binstalk::TARGET.replace("-gnu", "-musl");
-			assert_eq!(host_targets(), [vec![binstalk::TARGET.to_owned()], vec![musl]]);
+			// This test binary links glibc dynamically.
+			assert!(elf_interpreter(&std::env::current_exe().unwrap()).unwrap());
 		}
 	}
 
