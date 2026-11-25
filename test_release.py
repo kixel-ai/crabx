@@ -106,17 +106,25 @@ class Plan(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "delete them"):
                 self.run_crate([("0.0.1", False)], bare)
 
-    def test_npm_plan_publishes_when_any_package_is_missing(self):
-        def fetch(url):
+    def run_npm_plan(self, lagging):
+        """npm_plan's outputs when npm has 0.2.0 of every package and install resolves all but lagging."""
+
+        def fetch(url, accept="*/*"):
             if url == r.INDEX:
                 return index(("0.1.0", False), ("0.2.0", False))
-            return None if url.endswith("/@kixel/crabx-win32-arm64/0.2.0") else b"{}"
+            name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
+            return json.dumps({"versions": {} if name in lagging else {"0.2.0": {}}}).encode()
 
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / "out"
             with patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), patch.object(r, "fetch", side_effect=fetch):
                 r.npm_plan()
-            self.assertEqual(out.read_text(), "version=0.2.0\npublish=true\ninstall=true\n")
+            return out.read_text()
+
+    def test_npm_plan_publishes_until_npm_install_resolves_every_package(self):
+        # A package npm lacks, or one it has but does not serve yet, needs the npm job, which waits.
+        self.assertEqual(self.run_npm_plan({"@kixel/crabx-win32-arm64"}), "version=0.2.0\npublish=true\ninstall=true\n")
+        self.assertEqual(self.run_npm_plan(set()), "version=0.2.0\npublish=false\ninstall=true\n")
 
     def test_missing_looks_up_the_version_npm_stores(self):
         # npm drops build metadata on publish, so 0.2.0+build-5 is stored as 0.2.0.

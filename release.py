@@ -181,10 +181,12 @@ def wait_served(version):
 
 
 def npm_plan():
-    """Pick the newest stable crates.io version, whether npm lacks any of its packages, and whether it has `crabx install` to check."""
+    """Pick the newest stable crates.io version, whether npm install cannot yet resolve any of its packages, and whether it has `crabx install` to check."""
     version = newest_stable(published())
     has_install = tuple(int(part) for part in VERSION.fullmatch(version).group(1, 2, 3)) >= (0, 2, 0)
-    output(version=version, publish="true" if missing(version) else "false", install="true" if has_install else "false")
+    # Unserved rather than missing, so a rerun during npm's propagation still runs the npm
+    # job, which publishes nothing then and waits, before npm-check installs.
+    output(version=version, publish="true" if unserved(version) else "false", install="true" if has_install else "false")
 
 
 def verify(archive, version):
