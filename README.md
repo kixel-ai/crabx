@@ -16,8 +16,8 @@ crabx moq-cli --help
 Install crabx once, from its release:
 
 ```sh
-curl -fsSL https://crabx.kixel.me/install.sh | sh
-powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
+curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
+powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 https://crabx.kixel.me/install.ps1 | iex"
 npm install -g @kixel/crabx
 cargo install crabx
 ```

@@ -169,12 +169,16 @@ jobs:
           Get-Content -Raw install.ps1 | Invoke-Expression
           if (([Environment]::GetEnvironmentVariable('Path', 'User') -split ';') -notcontains $env:CRABX_INSTALL_DIR) { throw 'install.ps1 left its directory off the user Path' }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
+      # Windows PowerShell 5.1 follows an HTTPS-to-HTTP redirect unless told not to.
+      - name: Redirects
+        shell: powershell
+        run: ./tests/install-redirect.ps1
       - name: Deployed installer
         if: ${{ github.event_name != 'pull_request' }}
         shell: powershell
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
-          powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
+          powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 https://crabx.kixel.me/install.ps1 | iex"
           if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed: $LASTEXITCODE" }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 
@@ -190,7 +194,7 @@ jobs:
     steps:
       - run: |
           export CRABX_INSTALL_DIR="$RUNNER_TEMP/crabx-bin"
-          curl -fsSL --proto '=https' https://crabx.kixel.me/install.sh | sh
+          curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
           "$CRABX_INSTALL_DIR/crabx" --version
-          curl -fsS --proto '=https' https://crabx.kixel.me/ -o index.html
+          curl --proto '=https' --tlsv1.2 -fsS https://crabx.kixel.me/ -o index.html
           grep -qF '<title>crabx' index.html
