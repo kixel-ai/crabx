@@ -24,6 +24,13 @@ in the kixel.me zone are done):
 Decided 2026-11-24 (maintainer, [kixel-ai/crabx#23](https://github.com/kixel-ai/crabx/pull/23#issuecomment-7141565098)):
 ✅ keep this follow-up (rejected: drop).
 
+Decided 2026-11-24 (maintainer, [kixel-ai/crabx#23](https://github.com/kixel-ai/crabx/pull/23#issuecomment-7147829397)):
+✅ accept the minutes-long gap between merge and step 1, when main's install lines name
+crabx.kixel.me before it serves them, and delete the kixel.ai CNAME in step 3 (rejected: keep
+crabx.kixel.ai as a Cloudflare 301 redirect). ✅ accept that crabx 0.1.0's published npm and
+crates.io READMEs keep the dead crabx.kixel.ai install line until the next release
+republishes them.
+
 ## Waiting
 
 - Maintainer: open https://crabx.kixel.me on desktop and phone, run its install line, and

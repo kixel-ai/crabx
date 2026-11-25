@@ -3,7 +3,7 @@
 PRs into `main` land as squash commits, so the PR title becomes the commit subject.
 
 - Use conventional-commit subjects (`feat: ...`, `fix(pipeline): ...`, `chore: ...`, `docs: ...`).
-- Never commit binaries or build artifacts.
+- Never commit compiled binaries or build output; source assets such as images and fonts are fine.
 
 # PRs
 
