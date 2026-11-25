@@ -19,8 +19,9 @@ permissions:
 
 jobs:
   build:
-    # The publish job finds this job by name, as the artifact it uploads.
-    name: crabx-${{ matrix.name }}@${{ matrix.version }}@${{ matrix.target }}
+    # The publish job finds this job by name, as the artifact it uploads. A check that
+    # uploads nothing, as release.yml runs beside the pipeline, takes another name.
+    name: ${{ inputs.upload && 'crabx' || 'check' }}-${{ matrix.name }}@${{ matrix.version }}@${{ matrix.target }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.builds) }}

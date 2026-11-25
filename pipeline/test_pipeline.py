@@ -255,7 +255,7 @@ class Pipeline(unittest.TestCase):
         root = Path(__file__).parents[1]
         build = (root / ".github/workflows/crabx-build.yml").read_text()
         # The upload's name and path, and the job name the publish job finds, follow artifact() and asset().
-        self.assertIn("name: crabx-${{ matrix.name }}@${{ matrix.version }}@${{ matrix.target }}\n    strategy", build)
+        self.assertIn("name: ${{ inputs.upload && 'crabx' || 'check' }}-${{ matrix.name }}@${{ matrix.version }}@${{ matrix.target }}\n    strategy", build)
         self.assertIn("path: archives/${{ matrix.name }}-${{ matrix.target }}-v${{ matrix.version }}.tgz", build)
         action = (root / ".github/actions/crabx-archives/action.yml").read_text()
         self.assertEqual(re.findall(r"path: \$\{\{ runner.temp \}\}/crabx/(\S+)", action), [t for t, _ in p.TARGETS])
@@ -298,6 +298,9 @@ class Pipeline(unittest.TestCase):
         # "Re-run failed jobs" keeps the prior attempt's successful builds and their artifacts.
         rerun = jobs[1:] + [self.job(ITEM, all_targets[0], "failure"), self.job(ITEM, all_targets[0], attempt=2)]
         self.assertEqual(len(self.inventory(ITEM, artifacts, rerun)), 6)
+        # release.yml's pre-publish check of the same targets uploads nothing and is named apart.
+        checks = [{**self.job(ITEM, t, "failure", caller="check"), "name": "check / check-" + p.artifact(ITEM, t).removeprefix("crabx-")} for t in all_targets]
+        self.assertEqual(len(self.inventory(ITEM, artifacts, jobs + checks)), 6)
         # An expired artifact is neither a duplicate nor an archive.
         self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(ITEM, all_targets[0], 60, expired=True)], jobs)), 6)
         for case, artifacts_, jobs_, error in (
@@ -308,9 +311,9 @@ class Pipeline(unittest.TestCase):
             ("missing build job", artifacts, jobs[1:], "did not succeed"),
             ("unfinished build job", artifacts, jobs[1:] + [{**jobs[0], "status": "in_progress", "conclusion": None}], "did not succeed"),
             ("ambiguous build job", artifacts, jobs + [self.job(ITEM, all_targets[0], caller="other")], "did not succeed"),
+            ("job name suffix only", artifacts, jobs[1:] + [{**jobs[0], "name": "build / x" + p.artifact(ITEM, all_targets[0])}], "did not succeed"),
             # Re-running a build that already uploaded fails its upload, so its latest attempt fails.
             ("re-run uploaded build", artifacts, jobs + [self.job(ITEM, all_targets[0], "failure", attempt=2)], "did not succeed"),
-            ("job name suffix only", artifacts, jobs[1:] + [{**jobs[0], "name": "build / x" + p.artifact(ITEM, all_targets[0])}], "did not succeed"),
             ("missing digest", [{**artifacts[0], "digest": None}] + artifacts[1:], jobs, "no SHA-256"),
         ):
             with self.subTest(case), self.assertRaisesRegex(ValueError, error):

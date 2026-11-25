@@ -5,6 +5,7 @@ on:
     paths:
       - pipeline/**
       - .github/workflows/crabx*.yml
+      - .github/actions/crabx-archives/**
   workflow_dispatch:
 
 permissions:
