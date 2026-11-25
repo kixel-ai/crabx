@@ -106,8 +106,9 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	);
 	let name = spec.name.to_ascii_lowercase();
 	let path = dir.join(format!("{name}{EXE}"));
-	// Checked before resolving too, so a conflict fails before a long --build.
-	check(&dir, &name, &path)?;
+	// Checked before resolving too, so a conflict fails before a long --build. Under the lock, so
+	// a concurrent relink can't pair a new link with its old digest; released before resolving.
+	Launcher::lock().and_then(|_lock| check(&dir, &name, &path))?;
 	// A typo, a crate with no usable release, or an ambiguous binary fails now, not on the first run.
 	let cache = cache::Cache::new(&spec, parsed.mode())?;
 	let record = network::runtime()?.block_on(install::resolve(&cache, &spec, &parsed))?;
