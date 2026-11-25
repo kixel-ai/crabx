@@ -400,15 +400,29 @@ const OLD: &str = ".crabx-old";
 #[cfg(windows)]
 fn sweep(dir: &Path) -> Result<()> {
 	let old = dir.join(OLD);
-	let entries = match fs::read_dir(&old) {
+	match fs::symlink_metadata(&old) {
 		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-		entries => entries.with_context(|| format!("read {}", old.display()))?,
-	};
+		Err(error) => return Err(error).with_context(|| format!("read {}", old.display())),
+		// A link or junction could point at a user's files; only a plain directory is crabx's.
+		Ok(meta) if !meta.is_dir() || meta.file_type().is_symlink() || is_reparse(&meta) => {
+			anyhow::bail!("{} is not crabx's directory; move it out of the way", old.display())
+		}
+		Ok(_) => {}
+	}
+	let entries = fs::read_dir(&old).with_context(|| format!("read {}", old.display()))?;
 	for entry in entries {
 		// A program still running can't be deleted; a later install retries.
 		let _ = fs::remove_file(entry?.path());
 	}
 	Ok(())
+}
+
+/// Whether `meta` is a reparse point, such as a junction, which `is_symlink` doesn't report.
+#[cfg(windows)]
+fn is_reparse(meta: &fs::Metadata) -> bool {
+	use std::os::windows::fs::MetadataExt;
+	const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+	meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
 }
 
 /// Say how to put `dir` on PATH, or on Windows, add it to the user's `Path`, as the installers do.

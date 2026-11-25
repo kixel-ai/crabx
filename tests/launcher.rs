@@ -87,8 +87,9 @@ fn setup(temp: &Path) -> PathBuf {
 
 #[test]
 fn launchers_pass_every_argument_and_refuse_other_files() {
-	let temp = tempfile::tempdir().unwrap();
-	let temp = temp.path();
+	let dir = tempfile::tempdir().unwrap();
+	// Records store the resolved install directory, so messages name it (macOS's /var is /private/var).
+	let temp = &fs::canonicalize(dir.path()).unwrap();
 	setup(temp);
 	let crabx = Path::new(env!("CARGO_BIN_EXE_crabx"));
 	let bin = temp.join("bin");
