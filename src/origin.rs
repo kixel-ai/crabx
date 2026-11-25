@@ -8,7 +8,7 @@ use crate::fetchers::Receipt;
 use anyhow::{Context, Result, bail, ensure};
 use reqwest::{Url, redirect::Policy};
 use std::{
-	collections::{BTreeSet, HashMap},
+	collections::{BTreeMap, BTreeSet, HashMap},
 	sync::{Arc, Mutex},
 };
 
@@ -86,18 +86,56 @@ fn release_asset(url: &Url, chains: &[Vec<Url>]) -> Result<Url> {
 		.collect();
 	let direct = Vec::new();
 	let full = if full.is_empty() { vec![&direct] } else { full };
-	let mut found = BTreeSet::new();
+	// A release is its repository and decoded tag; a redirect's query string is not part of it.
+	let mut found = BTreeMap::new();
+	let initial = release(url)?;
 	for chain in full {
-		let release = std::iter::once(url)
-			.chain(chain)
-			.rfind(|hop| repository_url(hop).ok().flatten().is_some() && hop.path().contains("/releases/download/"));
-		found.extend(release.cloned());
+		let mut hops = Vec::new();
+		for hop in chain {
+			if let Some(id) = release(hop)? {
+				hops.push((id, hop));
+			}
+		}
+		// An initial URL that names a tag keeps it; only one that names none, like
+		// `releases/latest/download`, takes its release from the redirects.
+		let chosen = match &initial {
+			Some(id) => {
+				ensure!(
+					hops.iter().all(|(other, _)| other == id),
+					"the archive's redirects lead to another GitHub release than {url}"
+				);
+				Some((id.clone(), url))
+			}
+			None => hops.pop(),
+		};
+		if let Some((id, asset)) = chosen {
+			found.entry(id).or_insert(asset);
+		}
 	}
 	ensure!(
 		found.len() <= 1,
 		"the archive's redirects lead to several GitHub releases"
 	);
-	Ok(found.pop_first().unwrap_or_else(|| url.clone()))
+	Ok(found.into_values().next().unwrap_or(url).clone())
+}
+
+/// The `(repository, tag)` of a GitHub release asset URL, and none for any other URL.
+fn release(url: &Url) -> Result<Option<(String, String)>> {
+	let Some(repo) = repository_url(url)? else {
+		return Ok(None);
+	};
+	let Some(tag) = url
+		.path()
+		.split("/releases/download/")
+		.nth(1)
+		.and_then(|rest| rest.split('/').next())
+	else {
+		return Ok(None);
+	};
+	let tag = percent_encoding::percent_decode_str(tag)
+		.decode_utf8()
+		.context("invalid release tag")?;
+	Ok(Some((repo, tag.into_owned())))
 }
 
 fn origin(
@@ -254,7 +292,18 @@ mod tests {
 		assert_eq!(asset(&latest, &chains), tagged);
 		assert_eq!(asset(&url(ASSET), &[vec![cdn.clone()]]), url(ASSET));
 		let other = url("https://github.com/a/b/releases/download/v9/tool.tgz");
-		assert!(release_asset(&latest, &[vec![tagged], vec![other]]).is_err());
+		assert!(release_asset(&latest, &[vec![tagged.clone()], vec![other]]).is_err());
+		// A requested tag survives a redirect, and a redirect to another tag is an error.
+		let pinned = url("https://github.com/a/b/releases/download/tool-v1.2.3/tool.tgz");
+		assert_eq!(asset(&pinned, &[vec![tagged.clone()]]), pinned);
+		assert!(release_asset(&url(ASSET), &[vec![tagged.clone()]]).is_err());
+		let bumped = url("https://github.com/a/b/releases/download/tool-v1.2.4/tool.tgz");
+		assert!(release_asset(&pinned, &[vec![bumped]]).is_err());
+		// A query string or an encoded tag is the same release, not a second one.
+		let query = url("https://github.com/a/b/releases/download/tool-v1.2.3/tool.tgz?X=1");
+		let encoded = url("https://github.com/a/b/releases/download/tool%2Dv1.2.3/tool.tgz");
+		assert_eq!(asset(&pinned, &[vec![query.clone()]]), pinned);
+		assert_eq!(asset(&latest, &[vec![tagged.clone()], vec![query], vec![encoded]]), tagged);
 	}
 
 	#[test]
