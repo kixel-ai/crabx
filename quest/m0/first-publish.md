@@ -80,7 +80,8 @@ installed it from the registry, and `crabx --version` printed `crabx 0.1.0`.
   validated, on each package's settings page or with
   `npm trust github <package> --file release.yml --repo kixel-ai/crabx --env npm
   --allow-publish --yes` (npm 11.15.0 or later), and the maintainer gives a 2FA code; this
-  needs the maintainer's npm session. Check that release.yml's npm job publishes the
+  needs the maintainer's npm session. Then rerun it with `gh workflow run release.yml -R
+  kixel-ai/crabx`, which skips what is already published. Check that release.yml's npm job publishes the
   version and each package's settings page no longer says "Pending validation".
 
 - Maintainer: once release.yml has published a crates.io version, turn on crabx's "Require
