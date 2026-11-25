@@ -34,7 +34,7 @@ max.kixel.me, waits on this release.
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
 - [Pipeline v1.0.1](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
-- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, and revalidates pre-0.2.0 branch-attested cache entries
+- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, and revalidates legacy 0.1.x `author` cache entries lacking the new verification marker
 - [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds network reads
 - [Build cwd isolation](/quest/m1/build-cwd.md) - isolates working directory for `--build` and background `--refresh`
 
