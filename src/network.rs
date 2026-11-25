@@ -84,9 +84,9 @@ pub async fn spool(mut response: Response, directory: &std::path::Path) -> Resul
 	Ok(file)
 }
 
-/// What an unpinned run executes, and whether it should start a background refresh.
+/// What an unpinned run executes, or why it cannot, and whether to start a background refresh either way.
 pub struct Unpinned {
-	pub record: Record,
+	pub record: Result<Record>,
 	pub refresh: bool,
 }
 
@@ -99,21 +99,31 @@ pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: Sy
 		// Nothing cached says which release is old enough and not yanked.
 		None => runtime()?.block_on(Index::fetch(cache, name, None, now))?,
 	};
-	let choice = index
-		.choose(&cache.installed()?, age, now)
-		.with_context(|| format!("choose a release of {name}"))?;
-	let record = match &choice.installed {
-		Some(version) => cache
-			.load(version)?
-			.with_context(|| format!("{} vanished", cache.version(version).display()))?,
-		None => {
-			let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
-			runtime()?.block_on(install::resolve(cache, name, version, args))?
-		}
-	};
-	Ok(Unpinned {
-		refresh: index.due(now) || choice.newest.as_ref() != Some(&record.version),
-		record,
+	let chosen = (|| -> Result<_> {
+		let choice = index
+			.choose(&cache.installed()?, age, now)
+			.with_context(|| format!("choose a release of {name}"))?;
+		let record = match &choice.installed {
+			Some(version) => cache
+				.load(version)?
+				.with_context(|| format!("{} vanished", cache.version(version).display()))?,
+			None => {
+				let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
+				runtime()?.block_on(install::resolve(cache, name, version, args))?
+			}
+		};
+		Ok((record, choice.newest))
+	})();
+	Ok(match chosen {
+		Ok((record, newest)) => Unpinned {
+			refresh: index.due(now) || newest.as_ref() != Some(&record.version),
+			record: Ok(record),
+		},
+		// A stale index may be why nothing runs, so a due check still starts for the next run.
+		Err(error) => Unpinned {
+			refresh: index.due(now),
+			record: Err(error),
+		},
 	})
 }
 
@@ -326,7 +336,7 @@ mod tests {
 		let args = Args::parse_from(["crabx", "fixture"]);
 		let run = |age: &str, now| {
 			let run = unpinned(&cache, "fixture", &args, age.parse().unwrap(), now).unwrap();
-			(run.record.version.to_string(), run.refresh)
+			(run.record.unwrap().version.to_string(), run.refresh)
 		};
 		// Neither a check nor an install is due.
 		assert_eq!(run("24h", checked), ("1.2.3".into(), false));
@@ -336,6 +346,15 @@ mod tests {
 		assert_eq!(run("0s", checked), ("1.2.3".into(), true));
 		// The daily check is due, whatever is installed.
 		assert_eq!(run("2d", checked + hour * 24), ("1.2.3".into(), true));
+		// A run that cannot choose still starts the due check, which may be what it lacks.
+		let failed = |now| {
+			let run = unpinned(&cache, "fixture", &args, "1w".parse().unwrap(), now).unwrap();
+			(run.record.unwrap_err().to_string(), run.refresh)
+		};
+		let (error, refresh) = failed(checked);
+		assert!(error.starts_with("no release of fixture is 1w old yet"), "{error}");
+		assert!(!refresh);
+		assert!(failed(checked + hour * 24).1);
 	}
 
 	#[test]

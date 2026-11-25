@@ -221,7 +221,7 @@ fn cold_unpinned_build_installs_the_chosen_release_before_binary_selection() {
 		.join("build/fixture");
 	// Cargo would pick 1.3.0, which is under a day old; the helper requires `--version =1.2.3`.
 	index(&root, &[("1.3.0", Some(1)), ("1.2.3", Some(48))]);
-	// An absent --bin reports after installation, before any updater starts.
+	// An absent --bin reports after installation; with no check due, no updater starts.
 	let output = crabx(temp.path())
 		.args(["--build", "--bin", "missing", "fixture"])
 		.env("CARGO", temp.path().join("helper"))

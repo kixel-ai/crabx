@@ -50,28 +50,25 @@ fn run(args: cli::Args) -> Result<()> {
 		network::runtime()?.block_on(network::refresh(&cache, &spec.name, &args, age))?;
 		return Ok(());
 	}
-	let (record, refresh) = match &spec.version {
+	let record = match &spec.version {
 		// A pin reads no index and, once cached, makes no request.
 		Some(version) => match cache.load(version)? {
-			Some(record) => (record, false),
-			None => (
-				network::runtime()?.block_on(install::resolve(&cache, &spec.name, version, &args))?,
-				false,
-			),
+			Some(record) => record,
+			None => network::runtime()?.block_on(install::resolve(&cache, &spec.name, version, &args))?,
 		},
 		None => {
 			let run = network::unpinned(&cache, &spec.name, &args, age, SystemTime::now())?;
-			(run.record, run.refresh)
+			// The updater owns no terminal handles and never delays this invocation.
+			if run.refresh
+				&& let Err(error) = network::spawn_refresh(&spec, &args, age)
+			{
+				eprintln!("crabx: could not start background update: {error:#}");
+			}
+			run.record?
 		}
 	};
 	let binary = record.binary(args.bin.as_deref(), &spec.name)?;
 	let path = cache.version(&record.version).join("bin").join(binary);
-	if refresh {
-		// The updater owns no terminal handles and never delays this invocation.
-		if let Err(error) = network::spawn_refresh(&spec, &args, age) {
-			eprintln!("crabx: could not start background update: {error:#}");
-		}
-	}
 	execute(path, args.command.into_iter().skip(1).collect())
 }
 
