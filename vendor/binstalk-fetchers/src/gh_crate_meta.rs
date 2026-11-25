@@ -1,7 +1,6 @@
 use std::{
 	borrow::Cow,
 	fmt, iter,
-	path::Path,
 	sync::{Arc, OnceLock},
 };
 
@@ -382,11 +381,11 @@ impl super::Fetcher for GhCrateMeta {
 		})
 	}
 
-	async fn fetch_and_extract(&self, dst: &Path) -> Result<ExtractedFiles, FetchError> {
+	async fn download(&self, archive: &mut std::fs::File) -> Result<(), FetchError> {
 		let resolved = self
 			.resolution
 			.get()
-			.expect("find() should be called once before fetch_and_extract()");
+			.expect("find() should be called once before download()");
 		trace!(?resolved, "preparing to fetch");
 
 		let verifier = match (self.signature_policy, &self.target_data.meta.signing) {
@@ -415,28 +414,27 @@ impl super::Fetcher for GhCrateMeta {
 				};
 
 				debug!(?sign_url, "Downloading signature");
-				let signature = Download::new(self.client.clone(), sign_url).into_bytes().await?;
+				let signature = download_bytes(&self.client, sign_url, SMALL_FILE).await?;
 				trace!(?signature, "got signature contents");
 
 				SignatureVerifier::new(config, &signature)?
 			}
 		};
 
-		debug!(
-			url=%resolved.url,
-			dst=%dst.display(),
-			fmt=?resolved.pkg_fmt,
-			"Downloading package",
-		);
-		use binstalk_downloader::download::DataVerifier;
+		debug!(url=%resolved.url, fmt=?resolved.pkg_fmt, "Downloading package");
 		use sha2::Digest;
 		let mut data_verifier = crate::fetchers::signing::DigestVerifier {
 			inner: verifier.data_verifier()?,
 			digest: sha2::Sha256::new(),
 		};
-		let files = Download::new_with_data_verifier(self.client.clone(), resolved.url.clone(), &mut data_verifier)
-			.and_extract(resolved.pkg_fmt, dst)
-			.await?;
+		download_to(
+			&self.client,
+			resolved.url.clone(),
+			archive,
+			&mut data_verifier,
+			crate::archive::Limits::RELEASE.archive,
+		)
+		.await?;
 		trace!("validating signature (if any)");
 		if data_verifier.validate() {
 			if let Some(info) = verifier.info() {
@@ -456,8 +454,8 @@ impl super::Fetcher for GhCrateMeta {
 					url: resolved.url.clone(),
 					sha256: data_verifier.digest.finalize().into(),
 				})
-				.expect("fetch_and_extract is called once");
-			Ok(files)
+				.expect("download is called once");
+			Ok(())
 		} else {
 			Err(FetchError::InvalidSignature)
 		}

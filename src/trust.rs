@@ -8,7 +8,7 @@ use sigstore_verify::{
 	trust_root::{TrustedRoot, TufConfig},
 	types::{Bundle, Sha256Hash, SignatureContent},
 };
-use std::{fs::File, io::BufReader, path::Path};
+use std::{fs::File, io::BufReader, path::Path, time::Duration};
 
 #[derive(Deserialize)]
 struct Page {
@@ -52,7 +52,21 @@ pub struct Subject<'a> {
 	pub asset: reqwest::Url,
 }
 
+/// The most attestation pages crabx reads for one archive, one attestation each.
+const PAGES: usize = 32;
+/// The most bytes of one attestation page or external bundle, which run to tens of kilobytes.
+const BUNDLE_BYTES: u64 = 4 << 20;
+/// How long verifying one archive's attestations may take, Sigstore's trust roots included.
+const DEADLINE: Duration = Duration::from_secs(120);
+
+/// Check every attestation GitHub publishes for `receipt`'s archive, returning how it was verified.
 pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Result<String> {
+	tokio::time::timeout(DEADLINE, attestations(receipt, subject, stage))
+		.await
+		.with_context(|| format!("verifying GitHub attestations took longer than {DEADLINE:?}"))?
+}
+
+async fn attestations(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Result<String> {
 	let Subject {
 		name,
 		version,
@@ -66,13 +80,17 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 	let client = network::client()?;
 	// Request one bundle per page. An attestation for a different digest is never queried.
 	let endpoint = format!("https://api.github.com/repos/{repo}/attestations/sha256:{digest}");
-	let mut url = reqwest::Url::parse(&format!("{endpoint}?per_page=1"))?;
+	let mut cursor = Cursor {
+		url: reqwest::Url::parse(&format!("{endpoint}?per_page=1"))?,
+		page: 1,
+	};
 	let token = network::github_token()?;
-	let mut first_page = true;
 	let mut verified = 0;
 	let mut roots: [Option<TrustedRoot>; 2] = [None, None];
 	loop {
-		let mut request = client.get(url.clone()).header("Accept", "application/vnd.github+json");
+		let mut request = client
+			.get(cursor.url.clone())
+			.header("Accept", "application/vnd.github+json");
 		if let Some(token) = &token {
 			request = request.bearer_auth(token);
 		}
@@ -82,7 +100,7 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 			"GitHub API redirected outside GitHub"
 		);
 		// GitHub returns 404 when there are no attestations for this digest.
-		if response.status() == reqwest::StatusCode::NOT_FOUND && first_page {
+		if response.status() == reqwest::StatusCode::NOT_FOUND && cursor.page == 1 {
 			return Ok("author release (no published attestation)".into());
 		}
 		ensure!(
@@ -91,8 +109,8 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 		);
 		let response = response.error_for_status().context("query GitHub attestations")?;
 		let next = response.headers().get("link").map(|v| v.to_str()).transpose()?;
-		let next = next_page(next, &url, &repo, &digest)?;
-		let file = network::spool(response, stage).await?;
+		let next = next_page(next, &cursor, &repo, &digest)?;
+		let file = network::spool(response, stage, BUNDLE_BYTES).await?;
 		let page: Page = serde_json::from_reader(BufReader::new(File::open(file.path())?))?;
 		let Some(attestation) = page.attestations else {
 			ensure!(next.is_none(), "empty attestation page has a next page");
@@ -105,12 +123,12 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 					.bundle_url
 					.context("attestation has neither bundle nor bundle_url")?;
 				ensure!(
-					matches!(url.scheme(), "https" | "http") && url.username().is_empty() && url.password().is_none(),
+					url.scheme() == "https" && url.username().is_empty() && url.password().is_none(),
 					"invalid attestation bundle URL"
 				);
 				// External bundle storage receives no GitHub credential.
 				let response = client.get(url).send().await?.error_for_status()?;
-				let file = network::spool(response, stage).await?;
+				let file = network::spool(response, stage, BUNDLE_BYTES).await?;
 				external_bundle(file.path())?
 			}
 		};
@@ -139,8 +157,7 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 		)?;
 		verified += 1;
 		let Some(next) = next else { break };
-		url = next;
-		first_page = false;
+		cursor = next;
 	}
 	if verified > 0 {
 		Ok(format!("GitHub attestations ({verified}) sha256:{digest}"))
@@ -158,11 +175,22 @@ fn external_bundle(path: &Path) -> Result<Bundle> {
 		length <= compressed.len().saturating_mul(64),
 		"invalid Snappy expansion"
 	);
+	ensure!(
+		length as u64 <= BUNDLE_BYTES,
+		"attestation bundle expands past {BUNDLE_BYTES} bytes"
+	);
 	let json = snap::raw::Decoder::new().decompress_vec(&compressed)?;
 	Ok(serde_json::from_slice(&json)?)
 }
 
-fn next_page(link: Option<&str>, current: &reqwest::Url, repo: &str, digest: &str) -> Result<Option<reqwest::Url>> {
+/// An attestation page's URL, and how many pages it is from the first.
+#[derive(Debug)]
+struct Cursor {
+	url: reqwest::Url,
+	page: usize,
+}
+
+fn next_page(link: Option<&str>, current: &Cursor, repo: &str, digest: &str) -> Result<Option<Cursor>> {
 	let mut next = None;
 	for part in link.into_iter().flat_map(|link| link.split(',')) {
 		let mut fields = part.split(';');
@@ -207,8 +235,15 @@ fn next_page(link: Option<&str>, current: &reqwest::Url, repo: &str, digest: &st
 				== ["1"],
 			"pagination changed the attestation page size"
 		);
-		ensure!(url != *current, "GitHub repeated the attestation page");
-		next = Some(url);
+		ensure!(url != current.url, "GitHub repeated the attestation page");
+		ensure!(
+			current.page < PAGES,
+			"GitHub lists more than {PAGES} attestations for one archive"
+		);
+		next = Some(Cursor {
+			url,
+			page: current.page + 1,
+		});
 	}
 	Ok(next)
 }
@@ -457,6 +492,13 @@ mod tests {
 		external_bundle(temp.path()).unwrap();
 		std::fs::write(temp.path(), b"invalid snappy").unwrap();
 		assert!(external_bundle(temp.path()).is_err());
+		// Within the 64x ratio, yet past the absolute cap.
+		let large = vec![b' '; BUNDLE_BYTES as usize + 1];
+		let compressed = snap::raw::Encoder::new().compress_vec(&large).unwrap();
+		assert!(compressed.len() * 64 > large.len());
+		std::fs::write(temp.path(), compressed).unwrap();
+		let error = external_bundle(temp.path()).unwrap_err().to_string();
+		assert!(error.contains("expands past"), "{error}");
 	}
 
 	#[test]
@@ -493,17 +535,14 @@ mod tests {
 
 	#[test]
 	fn github_cursor_pagination_preserves_the_cursor_and_api_boundary() {
-		let current =
-			reqwest::Url::parse("https://api.github.com/repos/a/b/attestations/sha256:abc?per_page=1").unwrap();
+		let mut current = Cursor {
+			url: reqwest::Url::parse("https://api.github.com/repos/a/b/attestations/sha256:abc?per_page=1").unwrap(),
+			page: 1,
+		};
 		let target = "https://api.github.com/repositories/192136193/attestations/sha256:abc?per_page=1&after=58893410";
 		let link = format!("<{target}>; rel=\"next\", <https://docs.github.com/api>; rel=\"deprecation\"");
-		assert_eq!(
-			next_page(Some(&link), &current, "a/b", "abc")
-				.unwrap()
-				.unwrap()
-				.as_str(),
-			target
-		);
+		let next = next_page(Some(&link), &current, "a/b", "abc").unwrap().unwrap();
+		assert_eq!((next.url.as_str(), next.page), (target, 2));
 		assert!(next_page(None, &current, "a/b", "abc").unwrap().is_none());
 		for bad in [
 			target.replace("api.github.com", "evil.example"),
@@ -512,13 +551,22 @@ mod tests {
 			target.replace("sha256:abc", "sha256:def"),
 			target.replace("per_page=1", "per_page=100"),
 			target.replace("192136193", "a/b"),
-			current.to_string(),
+			current.url.to_string(),
 		] {
 			assert!(
 				next_page(Some(&format!("<{bad}>; rel=\"next\"")), &current, "a/b", "abc").is_err(),
 				"{bad}"
 			);
-		}
+		} // The last page GitHub may list ends the walk, and only one after it is refused.
+		current.page = PAGES - 1;
+		assert_eq!(
+			next_page(Some(&link), &current, "a/b", "abc").unwrap().unwrap().page,
+			PAGES
+		);
+		current.page = PAGES;
+		assert!(next_page(None, &current, "a/b", "abc").unwrap().is_none());
+		let error = next_page(Some(&link), &current, "a/b", "abc").unwrap_err().to_string();
+		assert!(error.contains("more than 32 attestations"), "{error}");
 	}
 
 	#[test]

@@ -10,8 +10,12 @@ and its unit tests omitted. Its license is also GPL-3.0-only.
 
 Local changes:
 
+- Download the found package into a file crabx stages instead of extracting it, so crabx checks
+  attestations and unpacks it within its own budgets only after the signature passes. The
+  archive, signature files, and quickinstall's target list are read within fixed byte limits,
+  and a broken transfer is not resumed.
 - Expose the archive's SHA-256, resolved URL, the crate's declared and redirect-resolved repository, and whether the crate's own `pkg-url` names its repository (it does not use `{ repo }`), after downloading,
-  hashing the same stream minisign checks. crabx checks attestations before installing.
+  hashing the same stream minisign checks.
 - Qualify internal paths under `crate::fetchers` and compile quickinstall
   unconditionally; crabx enables its use only with `--allow-quickinstall`.
 - Remove upstream's test modules and their helpers, some of which need the network or

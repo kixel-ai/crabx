@@ -1,6 +1,6 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
-use std::{borrow::Cow, path::Path, sync::Arc};
+use std::{borrow::Cow, sync::Arc};
 
 use binstalk_downloader::{download::DownloadError, remote::Error as RemoteError};
 use binstalk_git_repo_api::gh_api_client::GhApiError;
@@ -73,6 +73,9 @@ pub enum FetchError {
 
 	#[error("Failed to wait for task: {0}")]
 	TaskJoinError(#[from] JoinError),
+
+	#[error("{0} is larger than {1} bytes")]
+	TooLarge(Box<Url>, u64),
 }
 
 impl From<RemoteError> for FetchError {
@@ -101,8 +104,9 @@ pub trait Fetcher: Send + Sync {
 	where
 		Self: Sized;
 
-	/// Fetch a package and extract
-	async fn fetch_and_extract(&self, dst: &Path) -> Result<ExtractedFiles, FetchError>;
+	/// Download the found package into `archive`, checking any signature against every byte
+	/// before anything reads it.
+	async fn download(&self, archive: &mut std::fs::File) -> Result<(), FetchError>;
 
 	/// Find the package, if it is available for download
 	///
@@ -134,9 +138,6 @@ pub trait Fetcher: Send + Sync {
 
 	/// A short human-readable name, must contains only characters
 	/// and numbers and it also must be unique.
-	///
-	/// It is used to create a temporary dir where it is used for
-	/// [`Fetcher::fetch_and_extract`].
 	fn fetcher_name(&self) -> &'static str;
 
 	/// The strategy used by this fetcher

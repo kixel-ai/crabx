@@ -1,3 +1,4 @@
+mod archive;
 mod cache;
 mod cargo;
 mod cli;
@@ -10,6 +11,7 @@ mod install;
 mod launcher;
 mod network;
 mod origin;
+mod registry;
 #[path = "../vendor/binstalk-target.rs"]
 mod target;
 mod trust;
