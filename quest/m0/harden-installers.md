@@ -12,7 +12,7 @@ Decided 2026-11-24 (maintainer, /quest-plan): ✅ harden both installers in `m0`
 
 Changes to make:
 
-- Harden the published bootstrap commands in `README.md`, `site/index.html`, installer header comments, and `.github/workflows/e2e.yml`'s deployed smoke tests (which should run those exact published commands):
+- Harden the published bootstrap commands in `README.md`, `site/index.html`, installer header comments, `site/og.png` (and its `og:image:alt` / `twitter:image:alt` meta tags in `site/index.html`, either regenerating the preview with the hardened command or omitting the shell command from the preview image and alt text), and `.github/workflows/e2e.yml`'s deployed smoke tests (which should run those exact published commands):
   - Unix: add `--proto '=https' --tlsv1.2` to `curl` (`curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh`) so an HTTPS-to-HTTP redirect on the initial fetch cannot execute plaintext.
   - Windows PowerShell: enforce HTTPS-only redirects and TLS 1.2 on the initial `install.ps1` fetch as well (or use a small bounded HTTPS-only redirect check in the published PowerShell launch command) so Windows PowerShell 5.1 cannot follow an HTTPS-to-HTTP downgrade before `install.ps1` runs.
 - Strict SemVer 2.0.0 validation in both `install.sh` and `install.ps1` (specified directly rather than reusing `release.py`'s looser `VERSION` regex):
