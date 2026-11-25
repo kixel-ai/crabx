@@ -23,9 +23,9 @@ struct Launcher {
 	/// crabx's options, then the `CRATE[@VERSION]` the launcher runs.
 	args: Vec<String>,
 	/// On Windows, the SHA-256 of the crabx.exe the launcher links to, which tells it apart from a
-	/// program installed over it later.
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	sha256: Option<String>,
+	/// program installed over it later. While a relink is under way, the old and new ones.
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	sha256: Vec<String>,
 }
 
 /// What a launcher's path holds.
@@ -77,6 +77,8 @@ pub fn args(name: &str, args: impl Iterator<Item = OsString>) -> Result<cli::Arg
 /// Run `crabx install [OPTIONS] [CRATE[@VERSION]]`, given the arguments after `install`.
 pub fn install(args: Vec<OsString>) -> Result<()> {
 	let dir = directory()?;
+	// One install at a time, so each record names the file its launcher holds.
+	let _lock = Launcher::lock()?;
 	let Some(last) = args.last() else {
 		install_self(&dir)?;
 		return on_path(&dir);
@@ -126,15 +128,14 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	let cache = cache::Cache::new(&spec, parsed.mode())?;
 	let record = network::runtime()?.block_on(install::resolve(&cache, &spec, &parsed))?;
 	record.binary(parsed.bin.as_deref(), &spec.name)?;
+	let sha256 = recorded.map(|recorded| recorded.sha256.clone()).unwrap_or_default();
 	install_self(&dir)?;
-	// Recorded before linking: a record whose launcher is missing counts as uninstalled.
-	let launcher = Launcher {
+	let mut launcher = Launcher {
 		path,
 		args: args.iter().map(arg).collect::<Result<_>>()?,
-		sha256: linked(&dir)?,
+		sha256,
 	};
-	launcher.save(&name)?;
-	link(&dir, &launcher.path)?;
+	link(&dir, &name, &mut launcher)?;
 	eprintln!(
 		"crabx install: installed {}, which runs {krate} through crabx",
 		launcher.path.display()
@@ -220,6 +221,19 @@ impl Launcher {
 	fn found(&self) -> Result<Found> {
 		found(&self.path, Some(self))
 	}
+
+	/// The lock every install holds while it changes launchers and their records.
+	fn lock() -> Result<fs::File> {
+		let dir = records()?;
+		fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
+		let file = fs::File::options()
+			.create(true)
+			.truncate(false)
+			.write(true)
+			.open(dir.join("lock"))?;
+		file.lock()?;
+		Ok(file)
+	}
 }
 
 /// What `path` holds, given the record naming it. A Unix launcher is a symlink to `crabx` beside
@@ -234,19 +248,12 @@ fn found(path: &Path, record: Option<&Launcher>) -> Result<Found> {
 	let launcher = if cfg!(unix) {
 		metadata.is_symlink() && fs::read_link(path)? == Path::new("crabx")
 	} else {
-		match record.and_then(|record| record.sha256.as_deref()) {
-			Some(expected) => metadata.is_file() && sha256(path)? == expected,
+		match record.filter(|record| !record.sha256.is_empty()) {
+			Some(record) => metadata.is_file() && record.sha256.contains(&sha256(path)?),
 			None => false,
 		}
 	};
 	Ok(if launcher { Found::Launcher } else { Found::Other })
-}
-
-/// On Windows, the SHA-256 of the crabx.exe in `dir`, which its launchers' records hold.
-fn linked(dir: &Path) -> Result<Option<String>> {
-	cfg!(windows)
-		.then(|| sha256(&dir.join(format!("crabx{EXE}"))))
-		.transpose()
 }
 
 fn sha256(path: &Path) -> Result<String> {
@@ -280,7 +287,6 @@ fn install_self(dir: &Path) -> Result<()> {
 		replace(copy, &target)?;
 		eprintln!("crabx install: installed {}", target.display());
 	}
-	let sha256 = linked(dir)?;
 	for (name, mut launcher) in Launcher::all()? {
 		if launcher.path.parent() != Some(dir) {
 			continue;
@@ -288,13 +294,8 @@ fn install_self(dir: &Path) -> Result<()> {
 		match launcher.found()? {
 			// Deleting a launcher uninstalls it.
 			Found::Missing => Launcher::forget(&name)?,
-			// A Windows launcher is a link to the crabx.exe it was made from. Saved after
-			// linking, so a failure leaves a record that refuses the file rather than claims it.
-			Found::Launcher if cfg!(windows) => {
-				link(dir, &launcher.path)?;
-				launcher.sha256 = sha256.clone();
-				launcher.save(&name)?;
-			}
+			// A Windows launcher is a link to the crabx.exe it was made from.
+			Found::Launcher if cfg!(windows) => link(dir, &name, &mut launcher)?,
 			Found::Launcher => {}
 			Found::Other => {
 				eprintln!(
@@ -308,8 +309,9 @@ fn install_self(dir: &Path) -> Result<()> {
 	Ok(())
 }
 
-/// Point the launcher at `path` to the crabx in `dir`.
-fn link(dir: &Path, path: &Path) -> Result<()> {
+/// Point `launcher` at the crabx in `dir`, recording it as `name` first: a record whose launcher
+/// is missing counts as uninstalled.
+fn link(dir: &Path, name: &str, launcher: &mut Launcher) -> Result<()> {
 	#[cfg(unix)]
 	let link = |temp: &Path| std::os::unix::fs::symlink("crabx", temp);
 	// A hard link starts no shell, as a script would, so Ctrl-C asks nothing.
@@ -318,8 +320,21 @@ fn link(dir: &Path, path: &Path) -> Result<()> {
 	let temp = tempfile::Builder::new()
 		.prefix(".crabx-")
 		.make_in(dir, link)
-		.with_context(|| format!("link {} to crabx", path.display()))?;
-	replace(temp, path)
+		.with_context(|| format!("link {} to crabx", launcher.path.display()))?;
+	if cfg!(unix) {
+		launcher.save(name)?;
+		return replace(temp, &launcher.path);
+	}
+	// The link's own digest, whichever crabx.exe it caught. The record recognizes the old one
+	// too until the link replaces it, so an interrupted relink leaves either file recognized.
+	let digest = sha256(temp.path())?;
+	if !launcher.sha256.contains(&digest) {
+		launcher.sha256.push(digest.clone());
+	}
+	launcher.save(name)?;
+	replace(temp, &launcher.path)?;
+	launcher.sha256 = vec![digest];
+	launcher.save(name)
 }
 
 /// Rename `file` over `target`, so a running crabx keeps its old file.

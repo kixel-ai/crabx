@@ -27,9 +27,11 @@ a cold run resolves it rather than a warm cache's day-old index.
 `release.yml`'s `npm-check` job also runs `crabx install` from the published
 package on all three OSes.
 
-The version PR also offers `npx @kixel/crabx install` in the site's install
-tabs (`site/index.html`, beside the npm line). The site deploys from main, and
-npm's 0.1.x has no `install`, so the site can't offer it before this release.
+Once npm's `latest` is 0.2.0, a PR offers `npx @kixel/crabx install` beside
+the npm line in README.md's install block and the site's install tabs
+(`site/index.html`), and drops "From crabx 0.2.0" from README.md's
+`crabx install` section. npm's 0.1.x reads `install` as a crate name, so
+neither can offer it before then.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.

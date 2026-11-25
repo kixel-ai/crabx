@@ -18,7 +18,6 @@ Install crabx once, from its release:
 ```sh
 curl -fsSL https://crabx.kixel.me/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
-npx @kixel/crabx@latest install # crabx 0.2.0 and later
 npm install -g @kixel/crabx
 cargo install crabx
 ```
