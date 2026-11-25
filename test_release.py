@@ -157,7 +157,7 @@ class WaitServed(unittest.TestCase):
             self.assertIn(accept, r.INSTALL_ACCEPTS)
             # The deadline bounds each request, as urlopen's timeout would cut it short.
             self.assertGreater(timeout, 0)
-            self.assertLessEqual(clock.now + timeout, r.SERVE_BOUND)
+            self.assertLessEqual(clock.now + timeout, r.SERVE_BOUND + r.SERVE_POLL)
             clock.now += min(latency, timeout)
             if latency > timeout:
                 raise TimeoutError("timed out")
@@ -189,15 +189,20 @@ class WaitServed(unittest.TestCase):
         with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
             self.wait({"@kixel/crabx": r.SERVE_BOUND + 1})
 
+    def test_a_version_listed_in_the_last_interval_passes(self):
+        # Polls fall at 590 and 600 seconds, so a version listed between them is seen at the bound.
+        self.assertEqual(self.wait({"@kixel/crabx": r.SERVE_BOUND - 5})[0], r.SERVE_BOUND)
+
     def test_slow_requests_stay_within_the_bound(self):
-        # A poll makes up to 14 requests, so slow ones would overrun the bound unless each gets only what is left of it.
+        # A poll makes up to 14 requests, so slow ones would overrun the bound unless each gets
+        # only what is left of it, plus the last poll's SERVE_POLL to answer.
         with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
-            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1}, latency=6)
-        self.assertEqual(self.clock.now, r.SERVE_BOUND)
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + r.SERVE_POLL}, latency=6)
+        self.assertLessEqual(self.clock.now, r.SERVE_BOUND + r.SERVE_POLL)
         # A request the deadline cuts short fails the wait as a registry error.
         with self.assertRaises(TimeoutError):
-            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1}, latency=59)
-        self.assertEqual(self.clock.now, r.SERVE_BOUND)
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + r.SERVE_POLL}, latency=59)
+        self.assertEqual(self.clock.now, r.SERVE_BOUND + r.SERVE_POLL)
 
     def test_an_absent_package_is_unserved(self):
         with patch.object(r, "fetch", return_value=None):

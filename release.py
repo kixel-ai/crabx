@@ -180,13 +180,17 @@ def unserved(version, deadline=math.inf):
 
 
 def wait_served(version):
-    """Return once npm install resolves every package at version, or fail after SERVE_BOUND seconds."""
+    """Return once npm install resolves every package at version, or fail after SERVE_BOUND seconds.
+
+    The last poll starts at the bound, so a version npm lists by then passes; its requests get
+    one more SERVE_POLL to answer.
+    """
     deadline = time.monotonic() + SERVE_BOUND
-    while names := unserved(version, deadline):
-        # Fail before a sleep that would end past the bound, rather than after it.
-        if time.monotonic() + SERVE_POLL >= deadline:
+    while names := unserved(version, deadline + SERVE_POLL):
+        left = deadline - time.monotonic()
+        if left <= 0:
             raise SystemExit(f"npm still lacks {', '.join(names)} at {version} after {SERVE_BOUND} seconds")
-        time.sleep(SERVE_POLL)
+        time.sleep(min(SERVE_POLL, left))
 
 
 def npm_plan():
