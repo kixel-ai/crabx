@@ -48,10 +48,17 @@ pub struct Subject<'a> {
 	pub name: &'a str,
 	pub version: &'a Version,
 	pub repo: Option<String>,
+	/// The release asset URL that names the attested tag.
+	pub asset: reqwest::Url,
 }
 
 pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Result<String> {
-	let Subject { name, version, repo } = subject;
+	let Subject {
+		name,
+		version,
+		repo,
+		asset,
+	} = subject;
 	let Some(repo) = repo else {
 		return Ok("author release (repository does not support GitHub attestations)".into());
 	};
@@ -127,7 +134,7 @@ pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Re
 				repo: &repo,
 				name,
 				version,
-				asset: &receipt.url,
+				asset: &asset,
 			},
 		)?;
 		verified += 1;

@@ -50,16 +50,54 @@ fn unfragmented(mut url: Url) -> Url {
 	url
 }
 
-/// The GitHub repository `receipt`'s archive must be attested in, or none when GitHub is not
-/// involved. A conflicting or ambiguous GitHub origin is an error.
-pub fn repository(receipt: &Receipt, redirects: &Redirects) -> Result<Option<String>> {
-	origin(
-		receipt.declared.as_deref(),
-		receipt.repository.as_deref(),
-		receipt.explicit,
-		&receipt.url,
-		&redirects.chains(&receipt.url),
-	)
+/// Where an archive came from, as far as attestations can tell.
+pub struct Origin {
+	/// The GitHub repository the archive must be attested in, or none when GitHub is not involved.
+	pub repo: Option<String>,
+	/// The GitHub release asset the archive was finally served from, or its initial URL. A
+	/// `releases/latest/download` URL only reveals its release tag by redirecting.
+	pub asset: Url,
+}
+
+/// Find `receipt`'s origin. A conflicting or ambiguous GitHub origin is an error.
+pub fn resolve(receipt: &Receipt, redirects: &Redirects) -> Result<Origin> {
+	let chains = redirects.chains(&receipt.url);
+	Ok(Origin {
+		repo: origin(
+			receipt.declared.as_deref(),
+			receipt.repository.as_deref(),
+			receipt.explicit,
+			&receipt.url,
+			&chains,
+		)?,
+		asset: release_asset(&receipt.url, &chains)?,
+	})
+}
+
+fn release_asset(url: &Url, chains: &[Vec<Url>]) -> Result<Url> {
+	// A chain that another extends is one request's earlier hops, not another path.
+	let full: Vec<_> = chains
+		.iter()
+		.filter(|chain| {
+			!chains
+				.iter()
+				.any(|other| other.len() > chain.len() && other.starts_with(chain))
+		})
+		.collect();
+	let direct = Vec::new();
+	let full = if full.is_empty() { vec![&direct] } else { full };
+	let mut found = BTreeSet::new();
+	for chain in full {
+		let release = std::iter::once(url)
+			.chain(chain)
+			.rfind(|hop| repository_url(hop).ok().flatten().is_some() && hop.path().contains("/releases/download/"));
+		found.extend(release.cloned());
+	}
+	ensure!(
+		found.len() <= 1,
+		"the archive's redirects lead to several GitHub releases"
+	);
+	Ok(found.pop_first().unwrap_or_else(|| url.clone()))
 }
 
 fn origin(
@@ -201,6 +239,22 @@ mod tests {
 		assert_eq!(repo("http://github.com/a/b").unwrap().as_deref(), Some("a/b"));
 		assert_eq!(repo("https://www.github.com/A/b").unwrap().as_deref(), Some("a/b"));
 		assert!(repo("https://user@github.com/a/b").is_err());
+	}
+
+	#[test]
+	fn the_release_tag_comes_from_the_final_github_release_url() {
+		let latest = url("https://github.com/a/b/releases/latest/download/tool.tgz");
+		let tagged = url("https://github.com/a/b/releases/download/tool-v1.2.3/tool.tgz");
+		let cdn = url(CDN);
+		let asset = |start: &Url, chains: &[Vec<Url>]| release_asset(start, chains).unwrap();
+		assert_eq!(asset(&latest, &[]), latest);
+		assert_eq!(asset(&url(ASSET), &[]), url(ASSET));
+		// Each prefix of a request's chain is also recorded, and none disagrees with the whole.
+		let chains = [vec![tagged.clone()], vec![tagged.clone(), cdn.clone()]];
+		assert_eq!(asset(&latest, &chains), tagged);
+		assert_eq!(asset(&url(ASSET), &[vec![cdn.clone()]]), url(ASSET));
+		let other = url("https://github.com/a/b/releases/download/v9/tool.tgz");
+		assert!(release_asset(&latest, &[vec![tagged], vec![other]]).is_err());
 	}
 
 	#[test]

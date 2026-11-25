@@ -225,13 +225,14 @@ impl Package {
 			"quickinstall".to_owned()
 		} else {
 			let receipt = fetcher.receipt().context("missing archive digest")?;
-			let repo = origin::repository(receipt, redirects)?;
+			let origin = origin::resolve(receipt, redirects)?;
 			trust::verify(
 				receipt,
 				trust::Subject {
 					name: &self.name,
 					version: &self.version,
-					repo,
+					repo: origin.repo,
+					asset: origin.asset,
 				},
 				stage,
 			)
