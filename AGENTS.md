@@ -10,6 +10,6 @@ crabx runs a Rust CLI from its author's release without compiling it, and ships 
 
 # Development
 
-PRs target `main`. Run `just ci` before pushing; outside the dev shell (such as Pullfrog's job, which puts tools on `PATH` without shell env vars), run `nix develop --command just ...`. Pullfrog's review is the second reviewer, and its approval is what lands a PR.
+PRs target `main`. Run `just ci` before pushing; outside the dev shell, run `nix develop --command just ...`.
 
 Quests: before any work, run `quest context` and follow it, or read https://github.com/kixel-ai/quest/blob/main/docs/context.md where `quest` is not installed, unless this session already holds its rules.
