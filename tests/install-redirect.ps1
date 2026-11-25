@@ -95,6 +95,8 @@ try {
 		if ($global:fetched -ne $case[1]) { throw "tests: the published command fetched=$global:fetched from $($case[0]), not $($case[1])" }
 	}
 	$ErrorActionPreference = $errorAction
+	# The refused cases leave curl's nonzero exit code, which would fail a CI step that passed.
+	$global:LASTEXITCODE = 0
 	Write-Host 'Get-Https follows HTTPS redirects and refuses HTTP ones'
 } finally {
 	$ErrorActionPreference = $errorAction
