@@ -26,7 +26,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: kixel-ai/crabx/.github/workflows/crabx.yml@6905ead4b9c6a98ebbaa6517a148a95fc1197429 # pipeline-v1.0.0
+    uses: kixel-ai/crabx/.github/workflows/crabx.yml@b206ab0a5a2ca06abfc4672d1a61b182b51fc6f3 # pipeline-v1.0.1
 ```
 
 `crabx init` fills in origin's default branch and pins this release's immutable
@@ -86,9 +86,11 @@ exercise discovery, archiving, and publishing with recorded API and Cargo
 responses; the fixture workflow builds the real archives on all six targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
 archive with `gh attestation verify <archive> -R kixel-ai/crabx --signer-workflow
-kixel-ai/crabx/.github/workflows/crabx.yml`. After tagging, point
-`src/binaries.yml`, `.github/workflows/release.yml`, and the caller above at the
-tag's commit; a crabx test keeps the first and last identical.
+kixel-ai/crabx/.github/workflows/crabx.yml`. Then point `src/binaries.yml`,
+`.github/workflows/release.yml`, and the caller above at that commit and merge, so
+the `Release` run on the merge push exercises the pin. Once it succeeds, push an
+annotated tag (`git tag -a`) on the pinned commit, last because it is
+irreversible; a crabx test keeps the first and last pins identical.
 
 References: [binstall archive defaults](https://github.com/cargo-bins/cargo-binstall/blob/main/SUPPORT.md),
 [reusable job identity](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context),
