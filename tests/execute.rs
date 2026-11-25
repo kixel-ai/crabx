@@ -570,7 +570,8 @@ fn builds_reject_a_cargo_home_the_checkout_controls_or_configures() {
 	let output = checkout.crabx().args(["--build", "fixture@1.2.3"]).output().unwrap();
 	assert_eq!(output.status.code(), Some(37));
 	assert!(checkout.root.join("1.2.3/record.json").is_file());
-	// An installed release still runs, but the refresh that would build with this home never starts.
+	// An installed release still runs, and its refresh still checks the index, but refuses to build
+	// with this home.
 	index(&checkout.root, &[("1.3.0", Some(48)), ("1.2.3", Some(72))]);
 	let output = output_after_refresh(
 		checkout
@@ -579,12 +580,49 @@ fn builds_reject_a_cargo_home_the_checkout_controls_or_configures() {
 			.env("CARGO_HOME", "../.cargo"),
 	);
 	assert_eq!(output.status.code(), Some(37));
-	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(!String::from_utf8_lossy(&output.stderr).contains("background update"));
+	let failure = || -> serde_json::Value {
+		serde_json::from_slice(&fs::read(checkout.root.join("failure.json")).unwrap()).unwrap()
+	};
+	let refused = failure();
+	assert_eq!(refused["version"], "1.3.0", "{refused}");
+	let message = refused["message"].as_str().unwrap();
 	assert!(
-		stderr.contains("could not start background update: CARGO_HOME"),
-		"{stderr}"
+		message.starts_with("CARGO_HOME") && message.contains("is inside the checkout"),
+		"{refused}"
 	);
 	assert!(!checkout.root.join("1.3.0").exists());
+	assert_eq!(checkout.runs().len(), 1);
+	// The next run reports the refusal, and its refresh waits out the backoff.
+	let output = output_after_refresh(checkout.crabx().args(["--build", "fixture"]));
+	assert_eq!(output.status.code(), Some(37));
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		stderr.contains(&format!("the last background update failed: {message}")),
+		"{stderr}"
+	);
+	// A due index is still fetched under a rejected setting, so a yank of the cached release is seen.
+	fs::remove_file(checkout.root.join("failure.json")).unwrap();
+	let path = checkout.root.join("index.json");
+	let mut stale: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+	stale["checked"] =
+		serde_json::to_value(std::time::SystemTime::now() - std::time::Duration::from_secs(48 * 3600)).unwrap();
+	fs::write(&path, serde_json::to_vec(&stale).unwrap()).unwrap();
+	let output = output_after_refresh(
+		checkout
+			.crabx()
+			.args(["--build", "fixture"])
+			.env("CARGO_TARGET_DIR", "target"),
+	);
+	assert_eq!(output.status.code(), Some(37));
+	assert!(!String::from_utf8_lossy(&output.stderr).contains("background update"));
+	// The fetch ran first, and failed only for want of the network.
+	let fetched = failure();
+	assert_eq!(fetched["version"], serde_json::Value::Null, "{fetched}");
+	assert!(
+		fetched["message"].as_str().unwrap().contains("index.crates.io"),
+		"{fetched}"
+	);
 	assert_eq!(checkout.runs().len(), 1);
 }
 

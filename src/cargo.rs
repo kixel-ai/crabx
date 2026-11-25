@@ -12,6 +12,10 @@ use std::{
 	process::Command,
 };
 
+/// Why a detached refresh's caller refused its toolchain, so the refresh checks the index and
+/// builds nothing.
+pub const REFUSED: &str = "CRABX_BUILD_REFUSED";
+
 /// The caller's directory and the environment that chooses Cargo.
 pub struct Caller {
 	pub dir: PathBuf,
@@ -20,6 +24,7 @@ pub struct Caller {
 	pub target_dir: Option<OsString>,
 	pub path: Option<OsString>,
 	pub home: Option<PathBuf>,
+	pub refused: Option<OsString>,
 }
 
 impl Caller {
@@ -31,6 +36,7 @@ impl Caller {
 			target_dir: std::env::var_os("CARGO_TARGET_DIR"),
 			path: std::env::var_os("PATH"),
 			home: directories::BaseDirs::new().map(|base| base.home_dir().to_owned()),
+			refused: std::env::var_os(REFUSED),
 		})
 	}
 }
@@ -49,6 +55,9 @@ pub struct Toolchain {
 
 impl Toolchain {
 	pub fn new(caller: &Caller) -> Result<Self> {
+		if let Some(refused) = &caller.refused {
+			bail!("{}", refused.to_string_lossy());
+		}
 		let nonempty = |value: &Option<OsString>| value.clone().filter(|value| !value.is_empty());
 		let path = caller
 			.path
@@ -304,6 +313,7 @@ mod tests {
 			target_dir: None,
 			path: Some(temp.join("bin").into_os_string()),
 			home: Some(temp.to_owned()),
+			refused: None,
 		}
 	}
 

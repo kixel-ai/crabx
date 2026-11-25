@@ -236,8 +236,15 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	command.arg("--minimum-release-age").arg(age.to_string());
 	if args.build {
 		command.arg("--build");
-		// Resolved here, since the updater runs from another directory.
-		cargo::Toolchain::new(&caller)?.env(&mut command);
+		// Resolved here, since the updater runs from another directory. A refused toolchain still
+		// lets the updater fetch the index, which needs no Cargo, so a yank is noticed; it refuses
+		// only to build.
+		match cargo::Toolchain::new(&caller) {
+			Ok(toolchain) => toolchain.env(&mut command),
+			Err(error) => {
+				command.env(cargo::REFUSED, format!("{error:#}"));
+			}
+		}
 	}
 	if args.allow_quickinstall {
 		command.arg("--allow-quickinstall");

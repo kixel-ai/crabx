@@ -78,7 +78,9 @@ against the current directory first. Since Cargo reads `.cargo/config.toml` and
 `.cargo/config` in `CARGO_HOME`'s parent directories, a `CARGO_HOME` set or a
 `CARGO_TARGET_DIR` inside the current git checkout (or its superproject), Cargo
 configuration in a parent `CARGO_HOME` shares with the current directory, or Cargo or
-rustup configuration (`rust-toolchain.toml`) at the root is an error.
+rustup configuration (`rust-toolchain.toml`) at the root is an error. A cached build
+still runs and its background refresh still checks the index for yanks; only the build
+of a new release fails, and the next run reports it.
 `--allow-quickinstall` permits cargo-quickinstall's third-party builds after the
 author's releases; those have a separate cache from the default trust policy.
 Quickinstall downloads require its minisign signature; a missing signature is an error.
