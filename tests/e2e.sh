@@ -95,6 +95,16 @@ cases() {
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }
 
+# unpinned NETWORK: run crabx's own newest release at least a day old, which needs the index it
+# caches online and nothing else offline. crabx is ours, so no third party's release changes it.
+unpinned() {
+    local out
+    echo "e2e: $1 crabx crabx"
+    out=$("$1" "$crabx" crabx --version | tr -d '\r')
+    case $out in "crabx "*) ;; *) fail "unpinned crabx printed '$out'" ;; esac
+    [ -f "$cache/author/crabx/index.json" ] || fail "unpinned crabx cached no index"
+}
+
 # A failure log needs the API quota crabx had: the token's, and the one this address shares
 # with other tenants, which crabx spends without a token.
 quota() { curl -fsS --max-time 30 "$@" https://api.github.com/rate_limit | tr -d ' \n' | grep -o '"core":{[^}]*}'; }
@@ -102,6 +112,7 @@ echo "e2e: unauthenticated GitHub API quota: $(quota)"
 token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if [ -n "$token" ]; then echo "e2e: token's GitHub API quota: $(quota -H @- <<<"Authorization: Bearer $token")"; fi
 cases online
+unpinned online
 # A crate shipping both runs its gnu build, and a musl-only one its static musl build.
 interpreter() {
     local headers
@@ -136,6 +147,7 @@ block
 if error=$(offline "$crabx" bat@0.26.1 --version 2>&1); then fail "the network block let crabx install bat@0.26.1"; fi
 echo "e2e: offline crabx bat@0.26.1 fails: $error"
 cases offline
+unpinned offline
 unblock
 pinned online bat@0.26.1 author "author release (no published attestation)\""
 echo "e2e: every case passed on $target"

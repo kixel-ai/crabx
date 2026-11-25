@@ -77,19 +77,34 @@ published atomically under a per-crate lock. An incomplete or corrupt entry fail
 loudly. Build and quickinstall entries cannot satisfy the default author's-release
 policy.
 The next uncached installation removes abandoned `install-*` staging directories
-under that lock. Malformed refresh state also fails with its path; delete that file
-to reset update tracking. Pinned invocations do not read refresh state.
+under that lock. Malformed index or refresh state (`index.json`, `failure.json`) also
+fails with its path; delete that file to reset update tracking. Pinned invocations do
+not read either.
 
-An unpinned invocation runs its cached version immediately and starts a detached
-sparse-index refresh and installation for the next invocation. The refresh retains the newest stable,
-non-yanked version, never a prerelease. A yank can select an older version. Only one
-refresh per crate and policy runs at a time. Network errors leave the cached version
-available. Each repeated error for a discovered version is reported once, on the next
-unpinned invocation. Failed refreshes retry after 30 seconds, doubling to at most 30 minutes;
-a successful refresh resets that delay. Conditional index requests retain their validator
-even when installation fails, and an unchanged index still retries the pending installation.
-A newly discovered version becomes current only after installation succeeds. Release requests
-have a five-minute total timeout and a 30-second read timeout.
+An unpinned invocation runs the newest stable, non-yanked release published at least 24
+hours ago, by the `pubtime` crates.io's sparse index records, never a prerelease. A
+hijacked release is usually yanked within hours, so the delay keeps most of them from ever
+running. `--minimum-release-age DURATION` or `CRABX_MINIMUM_RELEASE_AGE` changes the
+delay, as a whole number of `s`, `m`, `h`, `d`, or `w`, such as `7d`; `0s` turns it off.
+A pinned `crate@version` ignores it. When no release is old enough, crabx names the newest
+and when it qualifies; pin it or pass `--minimum-release-age 0s` to run it sooner. A
+release whose index entry has no `pubtime` is an error, not old enough.
+
+Each unpinned invocation picks from the crate's cached index with its own delay and the
+current time; only a cache with no index fetches it first. It runs the newest installed
+release that qualifies at once, or installs the newest qualifying release first when none
+does. A detached refresh then checks the index for new releases at most once a day per
+crate and trust policy, and installs the newest qualifying release for the next
+invocation, so a new release usually first runs 24 to 48 hours after it is published.
+A yank stops an installed release from running unpinned once a check sees it, and can
+select an older release. Only one refresh per crate and policy runs at a time. Network
+errors leave the cached release available. Each repeated error for a release is reported
+once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, doubling to
+at most 30 minutes; a successful refresh resets that delay, and only a successful check
+counts toward the daily limit. Conditional index requests retain their validator even when
+installation fails. Installing a release also makes the requests binstalk or Cargo need,
+such as binstalk's own read of the crate's index entry. Release requests have a
+five-minute total timeout and a 30-second read timeout.
 
 Unix uses `exec`, preserving the PID, arguments, standard streams, signals, and exit
 status. Windows starts the program with inherited console and standard streams and
