@@ -1,4 +1,4 @@
-# [XS] Harden install.sh, install.ps1, and the published install commands
+# [S] Harden install.sh, install.ps1, and the published install commands
 
 ## Goal
 

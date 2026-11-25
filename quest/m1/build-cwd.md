@@ -1,4 +1,4 @@
-# [XS] Isolate working directory and Cargo home for --build and background --refresh
+# [M] Isolate working directory and Cargo home for --build and background --refresh
 
 ## Goal
 
@@ -23,7 +23,8 @@ Changes to make:
 - In `src/install.rs`, call `let _ = stage.keep();` after `fs::rename(stage.path(), &destination)?` succeeds, avoiding a redundant `ENOENT` cleanup on drop.
 - Add tests in `tests/execute.rs` (and unit tests for candidate-directory and `CARGO_HOME` validation) covering:
   - foreground `crabx --build` and background `--refresh` launched from `checkout/tools` with `XDG_CACHE_HOME=checkout/cache`, `TMPDIR=checkout/tmp`, and `checkout/.cargo/config.toml`, proving Cargo runs outside `checkout` and never reads `checkout/.cargo/config.toml`,
-  - preserving a trusted relative `CARGO_HOME` (e.g., `../trusted-home`) and resolving `CARGO` (both relative paths like `./bin/cargo` and bare `cargo` via relative `PATH` entries like `../toolchain/bin`) to absolute paths in both `cargo install` and detached `--refresh`,
+  - preserving a trusted relative `CARGO_HOME` (e.g., `../trusted-home`) and resolving `CARGO` (both relative paths like `./bin/cargo` and bare `cargo` via relative `PATH` entries like `../toolchain/bin`) to absolute paths in both `cargo install` and detached `--refresh --build`,
+  - a prebuilt background `--refresh` still succeeding with no Cargo on `PATH`,
   - rejecting a checkout-controlled `CARGO_HOME` (both absolute and relative) AND a `CARGO_HOME` whose shared ancestor holds untrusted `.cargo/config.toml` (e.g., `/work/checkout` + `/work/cargo-home` + `/work/.cargo/config.toml`) on both foreground `--build` and detached `--refresh`,
   - rejecting a candidate directory (including a root-like candidate) that directly contains `.cargo/config.toml` or `.cargo/config`, failing closed when no clean directory is available, and
   - confirming upgraded `--build` ignores legacy `crabx/v1/` `build/` entries.
