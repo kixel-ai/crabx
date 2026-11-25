@@ -36,6 +36,7 @@ fn run(temp: &Path, program: &Path, args: &[&str]) -> Output {
 		.env("PATH", "")
 		.env("HTTPS_PROXY", "http://127.0.0.1:1")
 		.env_remove("CRABX_REFRESH")
+		.env_remove("CRABX_MINIMUM_RELEASE_AGE")
 		.output()
 		.unwrap()
 }
@@ -175,8 +176,28 @@ fn a_launchers_refresh_runs_no_crate() {
 	let temp = tempfile::tempdir().unwrap();
 	let temp = temp.path();
 	let root = setup(temp);
-	let output = run(temp, Path::new(env!("CARGO_BIN_EXE_crabx")), &["install", "fixture"]);
+	// An unpinned install starts the due index check, as an unpinned run does.
+	let (address, request) = proxy();
+	let output = Command::new(env!("CARGO_BIN_EXE_crabx"))
+		.args(["install", "fixture"])
+		.env("HOME", temp)
+		.env("XDG_CACHE_HOME", cache(temp))
+		.env("XDG_STATE_HOME", temp.join("state"))
+		.env("CRABX_INSTALL_DIR", temp.join("bin"))
+		.env("PATH", "")
+		.env("HTTPS_PROXY", format!("http://{address}"))
+		.env_remove("CRABX_REFRESH")
+		.env_remove("CRABX_MINIMUM_RELEASE_AGE")
+		.output()
+		.unwrap();
 	assert!(output.status.success(), "{}", stderr(&output));
+	let request = request.recv_timeout(Duration::from_secs(120)).unwrap();
+	assert!(request.starts_with("CONNECT index.crates.io:443 "), "{request}");
+	// The refresh holds this lock from before it connects until it has recorded its failure.
+	let lock = fs::File::open(root.join("refresh.lock")).unwrap();
+	lock.lock().unwrap();
+	drop(lock);
+	fs::remove_file(root.join("failure.json")).unwrap();
 	let launcher = temp.join("bin/fixture");
 
 	// The marker wins over the launcher's name: this refreshes, failing offline, and runs nothing.
@@ -196,6 +217,26 @@ fn a_launchers_refresh_runs_no_crate() {
 
 	// The refresh an unpinned run starts asks the index for a newer version rather than
 	// running the crate again.
+	let (address, receiver) = proxy();
+	let output = Command::new(&launcher)
+		.arg("argument")
+		.env("HOME", temp)
+		.env("XDG_CACHE_HOME", cache(temp))
+		.env("XDG_STATE_HOME", temp.join("state"))
+		.env("HTTPS_PROXY", format!("http://{address}"))
+		.env_remove("CRABX_REFRESH")
+		.env_remove("CRABX_MINIMUM_RELEASE_AGE")
+		.output()
+		.unwrap();
+	assert_eq!(output.status.code(), Some(37), "{}", stderr(&output));
+	assert_eq!(String::from_utf8_lossy(&output.stdout), "[\"argument\"]\n");
+	// Only a hang reaches this deadline; the refresh connects as soon as it starts.
+	let request = receiver.recv_timeout(Duration::from_secs(120)).unwrap();
+	assert!(request.starts_with("CONNECT index.crates.io:443 "), "{request}");
+}
+
+/// A proxy that reports the first request line it receives, then drops the connection.
+fn proxy() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
 	let proxy = TcpListener::bind("127.0.0.1:0").unwrap();
 	let address = proxy.local_addr().unwrap();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -205,18 +246,5 @@ fn a_launchers_refresh_runs_no_crate() {
 		BufReader::new(stream).read_line(&mut line).unwrap();
 		sender.send(line).unwrap();
 	});
-	let output = Command::new(&launcher)
-		.arg("argument")
-		.env("HOME", temp)
-		.env("XDG_CACHE_HOME", cache(temp))
-		.env("XDG_STATE_HOME", temp.join("state"))
-		.env("HTTPS_PROXY", format!("http://{address}"))
-		.env_remove("CRABX_REFRESH")
-		.output()
-		.unwrap();
-	assert_eq!(output.status.code(), Some(37), "{}", stderr(&output));
-	assert_eq!(String::from_utf8_lossy(&output.stdout), "[\"argument\"]\n");
-	// Only a hang reaches this deadline; the refresh connects as soon as it starts.
-	let request = receiver.recv_timeout(Duration::from_secs(120)).unwrap();
-	assert!(request.starts_with("CONNECT index.crates.io:443 "), "{request}");
+	(address, receiver)
 }

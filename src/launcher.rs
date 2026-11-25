@@ -114,7 +114,16 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	let cache = cache::Cache::new(&spec, parsed.mode())?;
 	let record = match &spec.version {
 		Some(version) => network::runtime()?.block_on(install::resolve(&cache, &spec.name, version, &parsed))?,
-		None => network::unpinned(&cache, &spec.name, &parsed, age, std::time::SystemTime::now())?.record?,
+		None => {
+			let run = network::unpinned(&cache, &spec.name, &parsed, age, std::time::SystemTime::now())?;
+			// As an unpinned run does, so a stale cached index recovers instead of failing every install.
+			if run.refresh
+				&& let Err(error) = network::spawn_refresh(&spec, &parsed, age)
+			{
+				eprintln!("crabx: could not start background update: {error:#}");
+			}
+			run.record?
+		}
 	};
 	record.binary(parsed.bin.as_deref(), &spec.name)?;
 	// One install at a time, so each record names the file its launcher holds. Taken only after
@@ -375,6 +384,7 @@ fn replace<F>(file: tempfile::NamedTempFile<F>, target: &Path) -> Result<()> {
 		let old = target.parent().context("a launcher has no directory")?.join(OLD);
 		fs::create_dir_all(&old).with_context(|| format!("create {}", old.display()))?;
 		let old = tempfile::Builder::new()
+			.prefix(RETIRED)
 			.make_in(&old, |path| fs::rename(target, path))
 			.with_context(|| format!("move {} aside", target.display()))?
 			.into_temp_path();
@@ -396,6 +406,10 @@ fn replace<F>(file: tempfile::NamedTempFile<F>, target: &Path) -> Result<()> {
 #[cfg(windows)]
 const OLD: &str = ".crabx-old";
 
+/// The prefix of each program moved aside, so the sweep deletes only those and never a user's file.
+#[cfg(windows)]
+const RETIRED: &str = "crabx-retired-";
+
 /// Delete the programs earlier installs moved aside, except those still running.
 #[cfg(windows)]
 fn sweep(dir: &Path) -> Result<()> {
@@ -411,8 +425,12 @@ fn sweep(dir: &Path) -> Result<()> {
 	}
 	let entries = fs::read_dir(&old).with_context(|| format!("read {}", old.display()))?;
 	for entry in entries {
+		let entry = entry?;
+		if !entry.file_name().to_string_lossy().starts_with(RETIRED) {
+			continue;
+		}
 		// A program still running can't be deleted; a later install retries.
-		let _ = fs::remove_file(entry?.path());
+		let _ = fs::remove_file(entry.path());
 	}
 	Ok(())
 }
