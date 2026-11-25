@@ -9,7 +9,7 @@ use std::{
 };
 
 pub(super) use binstalk_downloader::{
-	download::{Download, ExtractedFiles},
+	download::{Download, DownloadError, ExtractedFiles},
 	remote::{
 		Client, StatusCode, Url,
 		header::{self, HeaderMap},
@@ -106,19 +106,24 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 }
 
 /// Whether `url` serves a file. A host that never or no longer has it (404, 410) or refuses
-/// the tokenless client (a 403 without rate-limit headers) is a miss; any other failure is an
-/// error rather than a miss, so a transient failure never falls through to a less preferred
-/// candidate.
+/// the tokenless client (a 403 without rate-limit headers) is a miss; any other answer but
+/// success is an error rather than a miss, so a transient failure never falls through to a less
+/// preferred candidate.
 pub(super) async fn remote_exists(client: &Client, url: Url) -> Result<bool, FetchError> {
-	let response = Box::pin(client.get(url).send(false)).await?;
+	let response = Box::pin(client.get(url.clone()).send(false)).await?;
 	let status = response.status();
 	if matches!(status, StatusCode::NOT_FOUND | StatusCode::GONE)
 		|| (status == StatusCode::FORBIDDEN && !rate_limited(response.headers()))
 	{
 		return Ok(false);
 	}
-	// A redirect left unfollowed, such as one without a Location, serves no archive.
-	Ok(response.error_for_status()?.status().is_success())
+	let status = response.error_for_status()?.status();
+	if !status.is_success() {
+		// A redirect left unfollowed, such as one without a Location, is a broken host, not a miss.
+		let err = std::io::Error::other(format!("{url} answered {status}, not a file"));
+		return Err(DownloadError::from(err).into());
+	}
+	Ok(true)
 }
 
 /// Whether a 403 asks the client to wait, as GitHub's rate limits do, rather than refusing it.
