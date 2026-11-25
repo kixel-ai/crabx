@@ -15,10 +15,8 @@ The version PR bumps `version` in `Cargo.toml`, and once it lands,
 `crabx install` is a new command and the delay changes which version an
 unpinned run picks.
 
-This is crabx's first release through `release.yml`, so the npm
-trusted-publishing step in [first publish](/quest/m0/first-publish.md)'s
-`Waiting` has to happen just before the version PR lands; that quest holds
-the procedure. After it lands, check that `release.yml`'s npm job published
+[0.1.1](/quest/m0/release-0.1.1.md) validates npm's trusted publishers first, so this
+release needs no npm setup. After it lands, check that `release.yml`'s npm job published
 0.2.0. Then run `npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
 `npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
@@ -29,6 +27,8 @@ kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
 
 ## Required
+
+- [0.1.1](/quest/m0/release-0.1.1.md) - the first publish through `release.yml`, which validates npm's trusted publishers
 
 - [Musl fallback](/quest/m0/musl-fallback.md) - runs crates with only musl Linux builds, such as token-max
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
