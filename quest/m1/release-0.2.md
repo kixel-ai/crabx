@@ -34,7 +34,3 @@ neither can offer it before then.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
-
-## Required
-
-- [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
