@@ -30,7 +30,12 @@ max.kixel.me, waits on this release.
 ## Required
 
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
+- [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
+- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, enforces GitHub origin checks across `pkg-url` and redirects, and isolates 0.2.0 entries in a policy-versioned cache namespace
+- [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds registry, network, and staging budgets
+- [Build cwd and Cargo home isolation](/quest/m1/build-cwd.md) - isolates working directory and `CARGO_HOME` for `--build` and background `--refresh`
 
 ## Related
 
 - [First publish](/quest/m0/first-publish.md) - validated npm's trusted publishers with 0.1.1, so this release needs no npm setup
+- [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`
