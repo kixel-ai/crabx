@@ -17,7 +17,8 @@ unpinned run picks.
 
 0.1.1, the first publish through `release.yml`, validated npm's trusted publishers on
 2026-11-25, and npm has all seven packages at 0.1.1, so this release needs no npm setup.
-After it lands, check that `release.yml`'s npm job published 0.2.0. Then run `npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
+After it lands, check that `release.yml`'s npm job published 0.2.0. Then run
+`npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
 `npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
 commands in the goal, with `@kixel/crabx@0.2.0`, on an empty crabx cache, so
