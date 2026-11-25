@@ -24,7 +24,8 @@ cargo install crabx
 
 The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_VERSION` or
 `CRABX_INSTALL_DIR` to choose another. `install.ps1` also adds that directory to the user's
-`Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`. Prebuilt crabx covers x86_64 and arm64 on glibc
+`Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`,
+so add it there yourself before running `crabx` by name. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
 Then:
 
@@ -58,8 +59,10 @@ under its state directory (`~/.local/state/crabx` on Linux, the local applicatio
 directory elsewhere); delete a launcher to uninstall it. It never overwrites a file it didn't
 install there, nor installs a name already installed in another directory. Bare
 `crabx install` also relinks Windows launchers to the crabx it installs; if one interrupted
-there leaves a launcher missing, run `crabx install CRATE` again. On Windows it adds the
-directory to the user's `Path`; on Unix it says when PATH lacks it. Run a crate named
+there leaves a launcher missing, repeat the command that installed it, with its `@VERSION`
+and options. On Windows it adds the directory to the user's `Path`; on Unix it only says when
+PATH lacks it, so add the directory to PATH yourself before running `crabx` or a launcher by
+name. Run a crate named
 `install` as `crabx install@VERSION`.
 
 Registry lookups and cache keys are case-insensitive. The explicit `--build` path
