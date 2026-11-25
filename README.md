@@ -93,8 +93,10 @@ have a five-minute total timeout and a 30-second read timeout.
 
 Unix uses `exec`, preserving the PID, arguments, standard streams, signals, and exit
 status. Windows starts the program with inherited console and standard streams and
-returns its exit code. Prebuilt Linux downloads require glibc; musl builds of crabx
-direct users to `--build`.
+returns its exit code. crabx itself must run on glibc to download prebuilt Linux binaries;
+musl builds of crabx direct users to `--build`. On glibc Linux, crabx runs a crate's
+`-linux-gnu` build, or its static `-linux-musl` build when discovery finds no gnu one; a
+dynamically linked musl build is an error naming `--build`.
 
 `crabx init`, run in a public crate repository, writes the caller of
 [crabx's release pipeline](pipeline/README.md) to

@@ -73,8 +73,11 @@ installed it from the registry, and `crabx --version` printed `crabx 0.1.0`.
   npm publish allowed, as the trusted publisher on all seven packages (`@kixel/crabx` and
   the six `@kixel/crabx-<platform>`) through npmjs.com in the agent Chrome, with the
   maintainer entering the 2FA codes. npm lists each as "Pending validation" until a
-  publish, which [crabx 0.1.1](/quest/m0/release-0.1.1.md) is planned to be. If they expire
-  first, wait until 0.1.1 is ready to publish, so a new two-day window isn't wasted, then
+  publish, which crabx 0.1.1's version bump starts on `main`: once release.yml's npm job
+  publishes 0.1.1, check each settings page and
+  `XDG_CACHE_HOME=$(mktemp -d) npx @kixel/crabx@0.1.1 token-max@0.0.1 --version` on glibc
+  Linux, which must print token-max's version from its musl build. If they expire
+  first, wait until a version is ready to publish, so a new two-day window isn't wasted, then
   an agent deletes and re-adds only the expired ones, leaving any a publish already
   validated, on each package's settings page or with
   `npm trust github <package> --file release.yml --repo kixel-ai/crabx --env npm

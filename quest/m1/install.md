@@ -84,9 +84,3 @@ Recommendations:
   it or an earlier one did, so a rerun that skips publishing still checks it, and runs the crate by name from a new shell, so
   a packaging or PATH regression in a published package fails that release's
   run.
-
-## Required
-
-- [0.1.1](/quest/m0/release-0.1.1.md) - cut before this lands, so 0.1.1 ships only the musl fallback
-
-- [Musl fallback](/quest/m0/musl-fallback.md) - token-max, this command's first consumer, ships only musl Linux builds
