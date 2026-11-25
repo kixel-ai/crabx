@@ -534,9 +534,7 @@ mod tests {
 				.block_on(Index::receive(cache, previous, response, at(5)))
 		};
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().join("fixture"),
-		};
+		let cache = Cache::at(temp.path().join("fixture"));
 		assert!(Index::load(&cache).unwrap().is_none());
 		// A 304 needs the releases it confirms.
 		assert!(receive(&cache, None, response("304 Not Modified", "")).is_err());

@@ -241,6 +241,10 @@ fn exec_preserves_signals_and_incomplete_cache_is_an_error() {
 		.read_line(&mut ready)
 		.unwrap();
 	assert_eq!(ready, "ready\n");
+	// The unattested release's admission ended as it replaced crabx, so an activation needn't wait for it to exit.
+	let lock = fs::File::open(ratchet(temp.path()).join("fixture.lock")).unwrap();
+	lock.try_lock().unwrap();
+	drop(lock);
 	// Readiness is synchronized over a pipe, never a timing assumption.
 	assert_eq!(unsafe { libc::kill(child.id() as i32, libc::SIGTERM) }, 0);
 	assert_eq!(child.wait().unwrap().signal(), Some(libc::SIGTERM));
@@ -256,6 +260,77 @@ fn exec_preserves_signals_and_incomplete_cache_is_an_error() {
 			.unwrap()
 			.contains("missing or invalid cached binary")
 	);
+}
+
+fn ratchet(temp: &Path) -> std::path::PathBuf {
+	cache(temp).join("crabx/v2").join(binstalk::TARGET).join("attested")
+}
+
+#[test]
+fn a_verified_attestation_in_any_cache_refuses_later_unattested_releases() {
+	let temp = tempfile::tempdir().unwrap();
+	let root = setup(temp.path(), "fixture");
+	let offline = |command: &mut Command| {
+		command
+			.env("PATH", "")
+			.env("HTTPS_PROXY", "http://127.0.0.1:1")
+			.output()
+			.unwrap()
+	};
+	// --require-attestation needs no history.
+	let output = offline(crabx(temp.path()).args(["--require-attestation", "fixture@1.2.3"]));
+	assert_eq!(output.status.code(), Some(1));
+	assert!(output.stdout.is_empty());
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		stderr.contains("fixture@1.2.3 has no verified GitHub attestation, which --require-attestation requires"),
+		"{stderr}"
+	);
+	assert!(!ratchet(temp.path()).join("fixture.migrated").exists());
+	// 0.1 verified 1.0.0 under --allow-quickinstall; 0.2 cached the same release as an author one.
+	let attested = r#"{"version":"1.0.0","bins":["tool"],"source":"GitHub attestations (1) sha256:00"}"#;
+	let legacy = cache(temp.path())
+		.join("crabx/v1")
+		.join(binstalk::TARGET)
+		.join("quickinstall/fixture/1.0.0");
+	fs::create_dir_all(&legacy).unwrap();
+	fs::write(legacy.join("record.json"), attested).unwrap();
+	let output = offline(crabx(temp.path()).arg("fixture@1.2.3"));
+	assert_eq!(output.status.code(), Some(1));
+	assert!(output.stdout.is_empty());
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	let marker = ratchet(temp.path()).join("fixture.attested");
+	assert!(
+		stderr.contains("fixture@1.2.3 has no verified GitHub attestation, though crabx verified one"),
+		"{stderr}"
+	);
+	assert!(stderr.contains(&marker.display().to_string()), "{stderr}");
+	assert!(marker.is_file());
+	// An unpinned run runs the older attested release, and its refresh checks the newer one for an attestation again.
+	fs::create_dir_all(root.join("1.0.0/bin")).unwrap();
+	fs::copy(root.join("1.2.3/bin/tool"), root.join("1.0.0/bin/tool")).unwrap();
+	fs::write(root.join("1.0.0/record.json"), attested).unwrap();
+	index(&root, &[("1.2.3", Some(48)), ("1.0.0", Some(72))]);
+	let output = output_after_refresh(
+		crabx(temp.path())
+			.arg("fixture")
+			.env("PATH", "")
+			.env("HTTPS_PROXY", "http://127.0.0.1:1"),
+	);
+	assert_eq!(
+		output.status.code(),
+		Some(37),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	let failure: serde_json::Value = serde_json::from_slice(&fs::read(root.join("failure.json")).unwrap()).unwrap();
+	// It tried to download the refused release again, failing only for want of the network.
+	assert_eq!(failure["version"], "1.2.3", "{failure}");
+	assert!(root.join("1.2.3/record.json").is_file());
+	// The pin still refuses, until the user deletes the marker.
+	assert_eq!(offline(crabx(temp.path()).arg("fixture@1.2.3")).status.code(), Some(1));
+	fs::remove_file(&marker).unwrap();
+	assert_eq!(offline(crabx(temp.path()).arg("fixture@1.2.3")).status.code(), Some(37));
 }
 
 /// Cache an index, checked now, of releases published the given hours ago (none for no `pubtime`).

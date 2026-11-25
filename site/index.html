@@ -119,7 +119,8 @@ Flags:
       <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's or
       GitHub's own trust root, and requires the signer to be the crate's repository, crabx's
       pipeline, or GitHub's release service for that repository's tag. <strong>A bad attestation is an error, never a warning.</strong> A release
-      with none, such as moq-relay's above, runs unverified.</p>
+      with none, such as moq-relay's above, runs unverified, unless crabx has verified one
+      for that crate before or <code>--require-attestation</code> is set.</p>
     </li>
     <li>
       <span class="num">03</span>

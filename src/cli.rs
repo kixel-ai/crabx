@@ -19,6 +19,9 @@ pub struct Args {
 	/// Allow cargo-quickinstall's third-party builds.
 	#[arg(long, conflicts_with = "build")]
 	pub allow_quickinstall: bool,
+	/// Refuse any author release without a verified GitHub attestation, even on a crate's first run.
+	#[arg(long, conflicts_with_all = ["build", "allow_quickinstall"])]
+	pub require_attestation: bool,
 	/// Run this binary when the crate ships several.
 	#[arg(long, value_name = "NAME")]
 	pub bin: Option<String>,

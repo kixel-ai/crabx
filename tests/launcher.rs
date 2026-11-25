@@ -172,6 +172,41 @@ fn launchers_pass_every_argument_and_refuse_other_files() {
 }
 
 #[test]
+fn launchers_replay_require_attestation() {
+	let temp = tempfile::tempdir().unwrap();
+	let temp = temp.path();
+	let root = setup(temp);
+	let crabx = Path::new(env!("CARGO_BIN_EXE_crabx"));
+	let args = ["install", "--require-attestation", "fixture@1.2.3"];
+	// The install refuses what the launcher would.
+	let output = run(temp, crabx, &args);
+	assert_eq!(output.status.code(), Some(1));
+	assert!(
+		stderr(&output).contains("which --require-attestation requires"),
+		"{}",
+		stderr(&output)
+	);
+	assert!(!temp.join("bin/fixture").exists());
+	let record = |source: &str| {
+		let record = serde_json::json!({ "version": "1.2.3", "bins": ["fixture"], "source": source });
+		fs::write(root.join("1.2.3/record.json"), record.to_string()).unwrap();
+	};
+	record("GitHub attestations (1) sha256:00");
+	let output = run(temp, crabx, &args);
+	assert!(output.status.success(), "{}", stderr(&output));
+	assert_eq!(run(temp, &temp.join("bin/fixture"), &[]).status.code(), Some(37));
+	// Had the launcher dropped the flag, the inactive ratchet would admit this.
+	record("author release (no published attestation)");
+	let output = run(temp, &temp.join("bin/fixture"), &[]);
+	assert_eq!(output.status.code(), Some(1));
+	assert!(
+		stderr(&output).contains("which --require-attestation requires"),
+		"{}",
+		stderr(&output)
+	);
+}
+
+#[test]
 fn a_launchers_refresh_runs_no_crate() {
 	let temp = tempfile::tempdir().unwrap();
 	let temp = temp.path();

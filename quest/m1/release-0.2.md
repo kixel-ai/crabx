@@ -38,7 +38,3 @@ max.kixel.me, waits on this release.
 ## Required
 
 - [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
-
-## Related
-
-- [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`

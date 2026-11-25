@@ -105,30 +105,44 @@ pub struct Unpinned {
 /// The release an unpinned run executes: the newest installed one `age` allows at `now` by the cached
 /// index, else the newest one it allows, installed first. Only a cache without an index fetches it.
 pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: SystemTime) -> Result<Unpinned> {
-	report_refresh_error(cache)?;
+	report_refresh_error(cache, args.require_attestation)?;
 	let index = match Index::load(cache)? {
 		Some(index) => index,
 		// Nothing cached says which release is old enough and not yanked.
 		None => runtime()?.block_on(Index::fetch(cache, name, None, now))?,
 	};
 	let chosen = (|| -> Result<_> {
-		let choice = index
-			.choose(&cache.installed()?, age, now)
-			.with_context(|| format!("choose a release of {name}"))?;
-		let record = match &choice.installed {
-			Some(version) => cache
-				.load(version)?
-				.with_context(|| format!("{} vanished", cache.version(version).display()))?,
-			None => {
-				let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
-				runtime()?.block_on(install::resolve(cache, name, version, args))?
+		let mut installed = cache.installed()?;
+		loop {
+			let choice = index
+				.choose(&installed, age, now)
+				.with_context(|| format!("choose a release of {name}"))?;
+			let record = match &choice.installed {
+				Some(version) => cache
+					.load(version)?
+					.with_context(|| format!("{} vanished", cache.version(version).display()))?,
+				None => {
+					let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
+					// The run admits or refuses it, naming the release.
+					break Ok((
+						runtime()?.block_on(install::resolve(cache, name, version, args))?,
+						choice.newest,
+					));
+				}
+			};
+			// An older attested release beats a newer one the ratchet refuses.
+			if cache.ratchet.eligible(&record, args.require_attestation)? {
+				break Ok((record, choice.newest));
 			}
-		};
-		Ok((record, choice.newest))
+			installed.remove(&record.version);
+		}
 	})();
 	Ok(match chosen {
 		Ok((record, newest)) => Unpinned {
-			refresh: index.due(now) || newest.as_ref() != Some(&record.version),
+			// A refused release is downloaded again in the background, in case it has been attested since.
+			refresh: index.due(now)
+				|| newest.as_ref() != Some(&record.version)
+				|| !cache.ratchet.eligible(&record, args.require_attestation)?,
 			record: Ok(record),
 		},
 		// A stale index may be why nothing runs, so a due check still starts for the next run.
@@ -145,7 +159,8 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(());
 	};
-	let previous = Failure::load(cache)?;
+	let strict = args.require_attestation;
+	let previous = Failure::load(cache, strict)?;
 	let now = SystemTime::now();
 	if previous.as_ref().is_some_and(|failure| now < failure.retry_at) {
 		return Ok(());
@@ -164,12 +179,18 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 			return Ok(());
 		};
 		pending = Some(version.clone());
-		install::resolve(cache, name, version, args).await?;
+		let record = install::resolve(cache, name, version, args).await?;
+		// A release cached before the policy refused it is downloaded again, in case its author attested
+		// it since; still unattested, it fails here, so the next run reports why it runs an older one.
+		if cache.ratchet.admit(&record, args.require_attestation).is_err() {
+			install::reinstall(cache, name, version, args).await?;
+		}
 		Ok(())
 	}
 	.await;
 	Failure::save(
 		cache,
+		strict,
 		Failure::next(previous, result.as_ref().err(), pending, SystemTime::now()).as_ref(),
 	)?;
 	result
@@ -189,12 +210,16 @@ struct Failure {
 }
 
 impl Failure {
-	fn path(cache: &Cache) -> PathBuf {
-		cache.root.join("failure.json")
+	/// Kept apart per attestation policy, since a strict refresh fails where a default one need not.
+	fn path(cache: &Cache, strict: bool) -> PathBuf {
+		cache.root.join(match strict {
+			false => "failure.json",
+			true => "failure-require-attestation.json",
+		})
 	}
 
-	fn load(cache: &Cache) -> Result<Option<Self>> {
-		let path = Self::path(cache);
+	fn load(cache: &Cache, strict: bool) -> Result<Option<Self>> {
+		let path = Self::path(cache, strict);
 		let file = match File::open(&path) {
 			Ok(file) => file,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -203,8 +228,8 @@ impl Failure {
 		serde_json::from_reader(file).with_context(|| format!("corrupt refresh state {}", path.display()))
 	}
 
-	fn save(cache: &Cache, failure: Option<&Self>) -> Result<()> {
-		let path = Self::path(cache);
+	fn save(cache: &Cache, strict: bool, failure: Option<&Self>) -> Result<()> {
+		let path = Self::path(cache, strict);
 		match failure {
 			Some(failure) => cache::atomic(&path, &serde_json::to_vec(failure)?),
 			None => match fs::remove_file(&path) {
@@ -237,8 +262,8 @@ impl Failure {
 	}
 }
 
-pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
-	let caller = cargo::Caller::current()?;
+/// The detached refresh's command, carrying the policy this run applied.
+fn refresh_command(spec: &Spec, args: &Args, age: MinimumAge, caller: &cargo::Caller) -> Result<Command> {
 	let mut command = Command::new(std::env::current_exe()?);
 	command.env(crate::launcher::REFRESH, "1");
 	// The updater outlives this invocation, so it must not keep the caller's directory in use.
@@ -250,7 +275,7 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 		// Resolved here, since the updater runs from another directory. A refused toolchain still
 		// lets the updater fetch the index, which needs no Cargo, so a yank is noticed; it refuses
 		// only to build.
-		match cargo::Toolchain::new(&caller) {
+		match cargo::Toolchain::new(caller) {
 			Ok(toolchain) => toolchain.env(&mut command),
 			Err(error) => {
 				command.env(cargo::REFUSED, format!("{error:#}"));
@@ -260,11 +285,16 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	if args.allow_quickinstall {
 		command.arg("--allow-quickinstall");
 	}
-	command
-		.arg(&spec.name)
-		.stdin(Stdio::null())
-		.stdout(Stdio::null())
-		.stderr(Stdio::null());
+	if args.require_attestation {
+		command.arg("--require-attestation");
+	}
+	command.arg(&spec.name);
+	Ok(command)
+}
+
+pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
+	let mut command = refresh_command(spec, args, age, &cargo::Caller::current()?)?;
+	command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
 	#[cfg(unix)]
 	{
 		use std::os::unix::process::CommandExt;
@@ -299,25 +329,25 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	Ok(())
 }
 
-pub fn report_refresh_error(cache: &Cache) -> Result<()> {
-	if let Some(error) = take_refresh_error(cache)? {
+pub fn report_refresh_error(cache: &Cache, strict: bool) -> Result<()> {
+	if let Some(error) = take_refresh_error(cache, strict)? {
 		eprintln!("crabx: the last background update failed: {error}");
 	}
 	Ok(())
 }
 
-fn take_refresh_error(cache: &Cache) -> Result<Option<String>> {
+fn take_refresh_error(cache: &Cache, strict: bool) -> Result<Option<String>> {
 	if !cache.root.try_exists()? {
 		return Ok(None);
 	}
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(None);
 	};
-	let Some(mut failure) = Failure::load(cache)?.filter(|failure| !failure.reported) else {
+	let Some(mut failure) = Failure::load(cache, strict)?.filter(|failure| !failure.reported) else {
 		return Ok(None);
 	};
 	failure.reported = true;
-	Failure::save(cache, Some(&failure))?;
+	Failure::save(cache, strict, Some(&failure))?;
 	Ok(Some(failure.message))
 }
 
@@ -370,9 +400,7 @@ pub mod tests {
 	fn unpinned_runs_refresh_only_when_a_check_is_due_or_a_newer_release_qualifies() {
 		use clap::Parser;
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let entry = cache.version(&Version::new(1, 2, 3));
 		fs::create_dir_all(entry.join("bin")).unwrap();
 		fs::write(entry.join("bin/tool"), "fixture").unwrap();
@@ -421,30 +449,103 @@ pub mod tests {
 	}
 
 	#[test]
+	fn an_active_ratchet_runs_the_newest_attested_release_and_refreshes() {
+		use clap::Parser;
+		let temp = tempfile::tempdir().unwrap();
+		let cache = Cache::at(temp.path().to_owned());
+		let entry = |version: &str, source: &str| {
+			let entry = cache.version(&Version::parse(version).unwrap());
+			fs::create_dir_all(entry.join("bin")).unwrap();
+			fs::write(entry.join("bin/tool"), "fixture").unwrap();
+			let record = serde_json::json!({ "version": version, "bins": ["tool"], "source": source });
+			fs::write(entry.join("record.json"), record.to_string()).unwrap();
+		};
+		entry("2.0.0", "author release (no published attestation)");
+		let checked = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+		let day = Duration::from_secs(24 * 3600);
+		fs::write(
+			cache.root.join("index.json"),
+			serde_json::to_vec(&serde_json::json!({
+				"etag": null,
+				"checked": checked,
+				"releases": [
+					{ "version": "2.0.0", "published": checked - day * 2 },
+					{ "version": "1.0.0", "published": checked - day * 3 },
+				],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+		let run = |args: &[&str]| {
+			let args = Args::parse_from(["crabx"].iter().chain(args).chain(&["fixture"]));
+			let run = unpinned(&cache, "fixture", &args, "24h".parse().unwrap(), checked).unwrap();
+			let record = run.record.unwrap();
+			let admitted = cache.ratchet.admit(&record, args.require_attestation).map(|_| ());
+			(record.version.to_string(), run.refresh, admitted.is_ok())
+		};
+		assert_eq!(run(&[]), ("2.0.0".into(), false, true));
+		assert_eq!(run(&["--require-attestation"]), ("2.0.0".into(), true, false));
+		// Cached after the one-time scan, as by a crabx without the ratchet, so only the strict
+		// policy prefers it, and its refresh retries the newest.
+		entry("1.0.0", "GitHub attestations (1) sha256:00");
+		assert_eq!(run(&["--require-attestation"]), ("1.0.0".into(), true, true));
+		assert_eq!(run(&[]), ("2.0.0".into(), false, true));
+		cache.ratchet.activate().unwrap();
+		assert_eq!(run(&[]), ("1.0.0".into(), true, true));
+		// With no attested release left, the newest is chosen and refused.
+		fs::remove_dir_all(cache.version(&Version::new(1, 0, 0))).unwrap();
+		assert_eq!(run(&[]), ("2.0.0".into(), true, false));
+	}
+
+	#[test]
+	fn refreshes_carry_the_runs_policy() {
+		use clap::Parser;
+		let caller = cargo::Caller::current().unwrap();
+		let args = |args: &[&str]| {
+			let args = Args::parse_from(["crabx"].iter().chain(args).chain(&["fixture"]));
+			let command =
+				refresh_command(&Spec::parse("fixture").unwrap(), &args, "1h".parse().unwrap(), &caller).unwrap();
+			command
+				.get_args()
+				.map(|arg| arg.to_str().unwrap().to_owned())
+				.collect::<Vec<_>>()
+		};
+		assert_eq!(args(&[]), ["--minimum-release-age", "1h", "fixture"]);
+		assert_eq!(
+			args(&["--require-attestation"]),
+			["--minimum-release-age", "1h", "--require-attestation", "fixture"]
+		);
+		assert_eq!(
+			args(&["--allow-quickinstall"]),
+			["--minimum-release-age", "1h", "--allow-quickinstall", "fixture"]
+		);
+	}
+
+	#[test]
 	fn failures_back_off_and_each_diagnostic_has_one_claim() {
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
 		let error = anyhow::anyhow!("no release for host");
 		let failure = Failure::next(None, Some(&error), None, now).unwrap();
 		assert_eq!(failure.retry_at, now + Duration::from_secs(30));
-		Failure::save(&cache, Some(&failure)).unwrap();
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		// A strict caller never sees, or claims, a default refresh's failure.
+		assert!(take_refresh_error(&cache, true).unwrap().is_none());
 		let lock = cache.try_refresh_lock().unwrap().unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		drop(lock);
 		assert_eq!(
-			take_refresh_error(&cache).unwrap().as_deref(),
+			take_refresh_error(&cache, false).unwrap().as_deref(),
 			Some("no release for host")
 		);
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		// A repeat keeps its report and doubles its delay.
 		let later = now + Duration::from_secs(30);
-		let failure = Failure::next(Failure::load(&cache).unwrap(), Some(&error), None, later).unwrap();
+		let failure = Failure::next(Failure::load(&cache, false).unwrap(), Some(&error), None, later).unwrap();
 		assert_eq!(failure.retry_at, later + Duration::from_secs(60));
-		Failure::save(&cache, Some(&failure)).unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		let mut failure = Some(failure);
 		for _ in 0..20 {
 			failure = Failure::next(failure, Some(&error), None, now);
@@ -454,11 +555,11 @@ pub mod tests {
 		let failure = Failure::next(failure, Some(&error), Some(Version::new(2, 0, 0)), now).unwrap();
 		assert_eq!(failure.delay, Duration::from_secs(30));
 		assert!(!failure.reported);
-		Failure::save(&cache, Some(&failure)).unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_some());
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		assert!(take_refresh_error(&cache, false).unwrap().is_some());
 		assert!(Failure::next(Some(failure), None, None, now).is_none());
-		Failure::save(&cache, None).unwrap();
-		assert!(Failure::load(&cache).unwrap().is_none());
-		Failure::save(&cache, None).unwrap();
+		Failure::save(&cache, false, None).unwrap();
+		assert!(Failure::load(&cache, false).unwrap().is_none());
+		Failure::save(&cache, false, None).unwrap();
 	}
 }
