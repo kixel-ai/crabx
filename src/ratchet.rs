@@ -52,7 +52,9 @@ impl Ratchet {
 		let lock = self.lock()?;
 		// Waits for every admitted unattested release to finish publishing or launching.
 		lock.lock()?;
-		cache::atomic(&self.marker(), b"")
+		cache::atomic(&self.marker(), b"")?;
+		// No scan is needed now, and one would undo a later deletion of the marker.
+		cache::atomic(&self.migrated(), b"")
 	}
 
 	/// Whether the ratchet is active, seeding it once from the caches earlier crabx versions wrote.
@@ -244,6 +246,21 @@ mod tests {
 		assert!(!ratchet.active().unwrap());
 		ratchet.activate().unwrap();
 		assert!(ratchet.active().unwrap());
+	}
+
+	#[test]
+	fn deleting_the_marker_resets_a_live_activation() {
+		let temp = tempfile::tempdir().unwrap();
+		let ratchet = ratchet(temp.path());
+		// The verified release, cached once activation recorded it.
+		entry(
+			&temp.path().join("v2"),
+			"1.0.0",
+			&format!(r#"{{"source":"{ATTESTED}"}}"#),
+		);
+		ratchet.activate().unwrap();
+		fs::remove_file(ratchet.marker()).unwrap();
+		assert!(!ratchet.active().unwrap());
 	}
 
 	#[test]

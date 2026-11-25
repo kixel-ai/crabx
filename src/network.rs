@@ -105,7 +105,7 @@ pub struct Unpinned {
 /// The release an unpinned run executes: the newest installed one `age` allows at `now` by the cached
 /// index, else the newest one it allows, installed first. Only a cache without an index fetches it.
 pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: SystemTime) -> Result<Unpinned> {
-	report_refresh_error(cache)?;
+	report_refresh_error(cache, args.require_attestation)?;
 	let index = match Index::load(cache)? {
 		Some(index) => index,
 		// Nothing cached says which release is old enough and not yanked.
@@ -156,7 +156,8 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(());
 	};
-	let previous = Failure::load(cache)?;
+	let strict = args.require_attestation;
+	let previous = Failure::load(cache, strict)?;
 	let now = SystemTime::now();
 	if previous.as_ref().is_some_and(|failure| now < failure.retry_at) {
 		return Ok(());
@@ -183,6 +184,7 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 	.await;
 	Failure::save(
 		cache,
+		strict,
 		Failure::next(previous, result.as_ref().err(), pending, SystemTime::now()).as_ref(),
 	)?;
 	result
@@ -202,12 +204,16 @@ struct Failure {
 }
 
 impl Failure {
-	fn path(cache: &Cache) -> PathBuf {
-		cache.root.join("failure.json")
+	/// Kept apart per attestation policy, since a strict refresh fails where a default one need not.
+	fn path(cache: &Cache, strict: bool) -> PathBuf {
+		cache.root.join(match strict {
+			false => "failure.json",
+			true => "failure-require-attestation.json",
+		})
 	}
 
-	fn load(cache: &Cache) -> Result<Option<Self>> {
-		let path = Self::path(cache);
+	fn load(cache: &Cache, strict: bool) -> Result<Option<Self>> {
+		let path = Self::path(cache, strict);
 		let file = match File::open(&path) {
 			Ok(file) => file,
 			Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
@@ -216,8 +222,8 @@ impl Failure {
 		serde_json::from_reader(file).with_context(|| format!("corrupt refresh state {}", path.display()))
 	}
 
-	fn save(cache: &Cache, failure: Option<&Self>) -> Result<()> {
-		let path = Self::path(cache);
+	fn save(cache: &Cache, strict: bool, failure: Option<&Self>) -> Result<()> {
+		let path = Self::path(cache, strict);
 		match failure {
 			Some(failure) => cache::atomic(&path, &serde_json::to_vec(failure)?),
 			None => match fs::remove_file(&path) {
@@ -317,25 +323,25 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	Ok(())
 }
 
-pub fn report_refresh_error(cache: &Cache) -> Result<()> {
-	if let Some(error) = take_refresh_error(cache)? {
+pub fn report_refresh_error(cache: &Cache, strict: bool) -> Result<()> {
+	if let Some(error) = take_refresh_error(cache, strict)? {
 		eprintln!("crabx: the last background update failed: {error}");
 	}
 	Ok(())
 }
 
-fn take_refresh_error(cache: &Cache) -> Result<Option<String>> {
+fn take_refresh_error(cache: &Cache, strict: bool) -> Result<Option<String>> {
 	if !cache.root.try_exists()? {
 		return Ok(None);
 	}
 	let Some(_lock) = cache.try_refresh_lock()? else {
 		return Ok(None);
 	};
-	let Some(mut failure) = Failure::load(cache)?.filter(|failure| !failure.reported) else {
+	let Some(mut failure) = Failure::load(cache, strict)?.filter(|failure| !failure.reported) else {
 		return Ok(None);
 	};
 	failure.reported = true;
-	Failure::save(cache, Some(&failure))?;
+	Failure::save(cache, strict, Some(&failure))?;
 	Ok(Some(failure.message))
 }
 
@@ -517,21 +523,23 @@ pub mod tests {
 		let error = anyhow::anyhow!("no release for host");
 		let failure = Failure::next(None, Some(&error), None, now).unwrap();
 		assert_eq!(failure.retry_at, now + Duration::from_secs(30));
-		Failure::save(&cache, Some(&failure)).unwrap();
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		// A strict caller never sees, or claims, a default refresh's failure.
+		assert!(take_refresh_error(&cache, true).unwrap().is_none());
 		let lock = cache.try_refresh_lock().unwrap().unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		drop(lock);
 		assert_eq!(
-			take_refresh_error(&cache).unwrap().as_deref(),
+			take_refresh_error(&cache, false).unwrap().as_deref(),
 			Some("no release for host")
 		);
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		// A repeat keeps its report and doubles its delay.
 		let later = now + Duration::from_secs(30);
-		let failure = Failure::next(Failure::load(&cache).unwrap(), Some(&error), None, later).unwrap();
+		let failure = Failure::next(Failure::load(&cache, false).unwrap(), Some(&error), None, later).unwrap();
 		assert_eq!(failure.retry_at, later + Duration::from_secs(60));
-		Failure::save(&cache, Some(&failure)).unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_none());
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		assert!(take_refresh_error(&cache, false).unwrap().is_none());
 		let mut failure = Some(failure);
 		for _ in 0..20 {
 			failure = Failure::next(failure, Some(&error), None, now);
@@ -541,11 +549,11 @@ pub mod tests {
 		let failure = Failure::next(failure, Some(&error), Some(Version::new(2, 0, 0)), now).unwrap();
 		assert_eq!(failure.delay, Duration::from_secs(30));
 		assert!(!failure.reported);
-		Failure::save(&cache, Some(&failure)).unwrap();
-		assert!(take_refresh_error(&cache).unwrap().is_some());
+		Failure::save(&cache, false, Some(&failure)).unwrap();
+		assert!(take_refresh_error(&cache, false).unwrap().is_some());
 		assert!(Failure::next(Some(failure), None, None, now).is_none());
-		Failure::save(&cache, None).unwrap();
-		assert!(Failure::load(&cache).unwrap().is_none());
-		Failure::save(&cache, None).unwrap();
+		Failure::save(&cache, false, None).unwrap();
+		assert!(Failure::load(&cache, false).unwrap().is_none());
+		Failure::save(&cache, false, None).unwrap();
 	}
 }
