@@ -1,4 +1,5 @@
 mod cache;
+mod cargo;
 mod cli;
 #[path = "../vendor/binstalk-fetchers/src/lib.rs"]
 #[allow(dead_code)] // The imported library exposes more than the runner consumes.

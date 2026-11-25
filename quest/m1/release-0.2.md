@@ -39,7 +39,6 @@ max.kixel.me, waits on this release.
 
 - [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
 - [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds registry, network, and staging budgets
-- [Build cwd and Cargo home isolation](/quest/m1/build-cwd.md) - isolates working directory and `CARGO_HOME` for `--build` and background `--refresh`
 
 ## Related
 

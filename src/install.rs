@@ -1,5 +1,6 @@
 use crate::{
 	cache::{self, Cache, Record},
+	cargo,
 	cli::Args,
 	fetchers::{
 		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
@@ -16,7 +17,7 @@ use binstalk::{
 };
 use binstalk_bins::{self as bins, BinFile};
 use semver::{Version, VersionReq};
-use std::{collections::BTreeSet, fs, path::Path, process::Command, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
 
 /// Install exactly `name@version` into the cache, unless it is already there.
 pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
@@ -37,6 +38,8 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 	};
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
 	fs::rename(stage.path(), cache.version(&record.version))?;
+	// The rename moved the directory, so there is nothing left to clean up.
+	let _ = stage.keep();
 	Ok(record)
 }
 
@@ -369,8 +372,7 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 }
 
 fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
-	let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-	let mut command = Command::new(cargo);
+	let mut command = cargo::Toolchain::new(&cargo::Caller::current()?)?.command()?;
 	command
 		.arg("install")
 		.arg(name)

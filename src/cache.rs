@@ -60,13 +60,11 @@ impl Cache {
 		Ok(Self::under(base.cache_dir(), spec, mode))
 	}
 
-	// Author and quickinstall entries moved to `v2` so none of 0.1's, which were never checked
-	// against 0.2's attestation policy, can run, and they stay as 0.1 wrote them. `build` keeps `v1`.
+	// Every mode lives under `v2` so no 0.1 entry runs: those were never checked against 0.2's
+	// attestation policy, or were built by Cargo in the caller's directory. They stay as 0.1 wrote them.
 	fn under(cache_dir: &Path, spec: &Spec, mode: &str) -> Self {
-		let epoch = if mode == "build" { "v1" } else { "v2" };
 		let root = cache_dir
-			.join("crabx")
-			.join(epoch)
+			.join("crabx/v2")
 			.join(binstalk::TARGET)
 			.join(mode)
 			.join(spec.name.to_ascii_lowercase());
@@ -250,7 +248,7 @@ mod tests {
 				.join(mode)
 				.join("tool")
 		};
-		for mode in ["author", "quickinstall"] {
+		for mode in ["author", "quickinstall", "build"] {
 			let entry = legacy(mode).join("1.2.3");
 			fs::create_dir_all(entry.join("bin")).unwrap();
 			fs::write(entry.join("bin/tool"), "unverified").unwrap();
@@ -278,12 +276,6 @@ mod tests {
 			assert!(entry.join("record.json").is_file() && entry.join("bin/tool").is_file());
 			assert!(!legacy(mode).join("lock").exists());
 		}
-		// `build` stays under `v1` until its own cutover.
-		let build = Cache::under(temp.path(), &spec, "build");
-		assert_eq!(
-			build.root,
-			temp.path().join("crabx/v1").join(binstalk::TARGET).join("build/tool")
-		);
 	}
 
 	#[test]
