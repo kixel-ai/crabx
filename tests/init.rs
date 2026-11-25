@@ -38,7 +38,7 @@ fn writes_the_caller_for_origins_default_branch() {
 	let written = fs::read_to_string(repo.join(".github/workflows/binaries.yml")).unwrap();
 	assert!(written.contains("    branches: ['trunk']\n"));
 	assert!(written.contains(
-		"uses: kixel-ai/crabx/.github/workflows/crabx.yml@6905ead4b9c6a98ebbaa6517a148a95fc1197429 # pipeline-v1.0.0\n"
+		"uses: kixel-ai/crabx/.github/workflows/crabx.yml@b206ab0a5a2ca06abfc4672d1a61b182b51fc6f3 # pipeline-v1.0.1\n"
 	));
 	// Only the caller changed.
 	let status = Command::new("git")

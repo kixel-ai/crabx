@@ -1,11 +1,13 @@
 use crate::{
+	archive,
 	cache::{self, Cache, Record},
+	cargo,
 	cli::Args,
 	fetchers::{
 		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
 		TargetDataErased,
 	},
-	network,
+	network, origin, registry,
 	target::TargetTriple,
 	trust,
 };
@@ -16,7 +18,7 @@ use binstalk::{
 };
 use binstalk_bins::{self as bins, BinFile};
 use semver::{Version, VersionReq};
-use std::{collections::BTreeSet, fs, path::Path, process::Command, str::FromStr, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, fs, path::Path, str::FromStr, sync::Arc, time::Duration};
 
 /// Install exactly `name@version` into the cache, unless it is already there.
 pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
@@ -37,6 +39,8 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 	};
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
 	fs::rename(stage.path(), cache.version(&record.version))?;
+	// The rename moved the directory, so there is nothing left to clean up.
+	let _ = stage.keep();
 	Ok(record)
 }
 
@@ -48,7 +52,7 @@ struct Package {
 	bins: Vec<(String, bool)>,
 }
 
-fn download_builder() -> reqwest::ClientBuilder {
+fn download_builder(redirects: &origin::Redirects) -> reqwest::ClientBuilder {
 	remote::Client::default_builder(
 		concat!("crabx/", env!("CARGO_PKG_VERSION")),
 		None,
@@ -56,16 +60,16 @@ fn download_builder() -> reqwest::ClientBuilder {
 		Default::default(),
 		&mut std::iter::empty(),
 	)
+	.redirect(redirects.policy())
 	.timeout(Duration::from_secs(300))
 	.read_timeout(Duration::from_secs(30))
 }
 
 async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) -> Result<Record> {
-	let client = remote::Client::from_builder(download_builder(), 1000.try_into()?, 100.try_into()?)?;
+	let redirects = origin::Redirects::default();
+	let client = remote::Client::from_builder(download_builder(&redirects), 1000.try_into()?, 100.try_into()?)?;
 	let req = VersionReq::parse(&format!("={version}"))?;
-	let (manifest, _) = binstalk::registry::Registry::default()
-		.fetch_crate_matched(client.clone(), &name.to_ascii_lowercase(), &req)
-		.await?;
+	let manifest = registry::manifest(client.get_inner(), &name.to_ascii_lowercase(), version, stage).await?;
 	let mut package = manifest.package.context("crate manifest has no package")?;
 	ensure!(
 		package.name.eq_ignore_ascii_case(name),
@@ -187,7 +191,7 @@ async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) 
 		if !found {
 			continue;
 		}
-		return package.install(stage, &name, fetcher.as_ref()).await;
+		return package.install(stage, &name, fetcher.as_ref(), &redirects).await;
 	}
 	bail!(
 		"no usable prebuilt release for {}@{} on {}; use --build to compile explicitly",
@@ -210,19 +214,36 @@ fn disabled(target: &TargetDataErased, strategy: Strategy) -> bool {
 }
 
 impl Package {
-	async fn install(&self, stage: &Path, discovery_name: &str, fetcher: &dyn Fetcher) -> Result<Record> {
-		let download = stage.join("download");
-		let extracted = fetcher.fetch_and_extract(&download).await?;
+	async fn install(
+		&self,
+		stage: &Path,
+		discovery_name: &str,
+		fetcher: &dyn Fetcher,
+		redirects: &origin::Redirects,
+	) -> Result<Record> {
+		let mut staged = tempfile::NamedTempFile::new_in(stage)?;
+		fetcher.download(staged.as_file_mut()).await?;
+		// quickinstall's archive is only ever minisign-checked; its releases carry no GitHub attestation.
 		let source = if fetcher.is_third_party() {
 			"quickinstall".to_owned()
 		} else {
+			let receipt = fetcher.receipt().context("missing archive digest")?;
+			let origin = origin::resolve(receipt, redirects)?;
 			trust::verify(
-				fetcher.receipt().context("missing archive digest")?,
-				&self.version,
+				receipt,
+				trust::Subject {
+					name: &self.name,
+					version: &self.version,
+					repo: origin.repo,
+					asset: origin.asset,
+				},
 				stage,
 			)
 			.await?
 		};
+		// Only now, with every published proof checked, does crabx decompress a byte.
+		let download = stage.join("download");
+		archive::extract(staged, fetcher.pkg_fmt(), &download, archive::Limits::RELEASE)?;
 		let version = self.version.to_string();
 		let install = stage.join("bin");
 		// `bin-dir` must spell `{ target-arch }` as the URL discovery found did.
@@ -245,15 +266,9 @@ impl Package {
 		let mut files = Vec::new();
 		let mut sources = BTreeSet::new();
 		for (name, required) in &self.bins {
-			let file = BinFile::new(
-				&data,
-				name,
-				&template,
-				&mut |p| extracted.get_dir(p).is_some(),
-				true,
-				&[],
-			)?;
-			if !extracted.has_file(&file.archive_source_path) {
+			let file = BinFile::new(&data, name, &template, &mut |p| download.join(p).is_dir(), true, &[])?;
+			// Extraction creates no links, so this is a file the archive holds.
+			if !file.source.is_file() {
 				ensure!(
 					!required,
 					"release archive omits required binary {name:?} at {}",
@@ -354,8 +369,7 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 }
 
 fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
-	let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-	let mut command = Command::new(cargo);
+	let mut command = cargo::Toolchain::new(&cargo::Caller::current()?)?.command()?;
 	command
 		.arg("install")
 		.arg(name)
@@ -595,7 +609,9 @@ mod tests {
 						.unwrap();
 					let _ = wait.await;
 				});
-				let mut builder = download_builder().https_only(false).no_proxy();
+				let mut builder = download_builder(&origin::Redirects::default())
+					.https_only(false)
+					.no_proxy();
 				if total {
 					// Isolate the total deadline from the shorter read deadline.
 					builder = builder.read_timeout(Duration::from_secs(600));
@@ -672,5 +688,156 @@ mod tests {
 		assert_eq!(source(&data), alternate.join(&name));
 		data.meta.bin_dir = Some("explicit/{ bin }{ binary-ext }".into());
 		assert_eq!(source(&data), temp.path().join("explicit").join(&name));
+	}
+
+	/// A fetcher whose download writes `archive`, then fails its signature check unless `signed`.
+	struct Fake {
+		archive: Vec<u8>,
+		signed: bool,
+		third_party: bool,
+		receipt: Option<fetchers::Receipt>,
+		target: Arc<TargetDataErased>,
+	}
+
+	#[async_trait::async_trait]
+	impl Fetcher for Fake {
+		fn new(
+			_: remote::Client,
+			_: GhApiClient,
+			_: Arc<Data>,
+			_: Arc<TargetDataErased>,
+			_: SignaturePolicy,
+		) -> Arc<dyn Fetcher> {
+			unreachable!()
+		}
+		async fn download(&self, archive: &mut fs::File) -> Result<(), fetchers::FetchError> {
+			use std::io::Write;
+			archive.write_all(&self.archive).unwrap();
+			match self.signed {
+				true => Ok(()),
+				false => Err(fetchers::FetchError::InvalidSignature),
+			}
+		}
+		fn find(self: Arc<Self>) -> tokio::task::JoinHandle<Result<bool, fetchers::FetchError>> {
+			unreachable!()
+		}
+		fn receipt(&self) -> Option<&fetchers::Receipt> {
+			self.receipt.as_ref()
+		}
+		fn pkg_fmt(&self) -> binstalk::manifests::cargo_toml_binstall::PkgFmt {
+			binstalk::manifests::cargo_toml_binstall::PkgFmt::Tgz
+		}
+		fn target_meta(&self) -> PkgMeta {
+			self.target.meta.clone()
+		}
+		fn source_name(&self) -> compact_str::CompactString {
+			"fake".into()
+		}
+		fn fetcher_name(&self) -> &'static str {
+			"Fake"
+		}
+		fn strategy(&self) -> Strategy {
+			Strategy::CrateMetaData
+		}
+		fn is_third_party(&self) -> bool {
+			self.third_party
+		}
+		fn target(&self) -> &str {
+			&self.target.target
+		}
+		fn target_data(&self) -> &Arc<TargetDataErased> {
+			&self.target
+		}
+	}
+
+	/// Install `fetcher`'s release of `tool`, returning the staging directory and the result.
+	fn install(fetcher: Fake) -> (tempfile::TempDir, Result<Record>) {
+		let stage = tempfile::tempdir().unwrap();
+		fs::create_dir(stage.path().join("bin")).unwrap();
+		let package = Package {
+			name: "tool".into(),
+			version: Version::new(1, 0, 0),
+			repository: None,
+			meta: PkgMeta::default(),
+			bins: vec![("tool".into(), true)],
+		};
+		let result = network::runtime().unwrap().block_on(package.install(
+			stage.path(),
+			"tool",
+			&fetcher,
+			&origin::Redirects::default(),
+		));
+		(stage, result)
+	}
+
+	fn fake(third_party: bool, signed: bool, receipt: Option<(&str, Option<&str>)>) -> Fake {
+		let name = format!("tool{}", std::env::consts::EXE_SUFFIX);
+		let tar = crate::archive::tests::tarball(&[(&name, b"binary")]);
+		let meta = PkgMeta {
+			bin_dir: Some("{ bin }{ binary-ext }".into()),
+			..PkgMeta::default()
+		};
+		Fake {
+			archive: crate::archive::tests::gzip(&tar),
+			signed,
+			third_party,
+			receipt: receipt.map(|(url, repository)| fetchers::Receipt {
+				declared: repository.map(str::to_owned),
+				repository: repository.map(str::to_owned),
+				explicit: true,
+				url: url.parse().unwrap(),
+				sha256: [0; 32],
+			}),
+			target: Arc::new(TargetData {
+				target: binstalk::TARGET.to_owned(),
+				meta,
+				target_related_info: TargetTriple::from_str(binstalk::TARGET).unwrap(),
+			}),
+		}
+	}
+
+	#[test]
+	fn archives_unpack_only_after_their_proofs_pass() {
+		let unpacked = |stage: &Path| stage.join("download").exists() || stage.join("bin/tool").exists();
+		// quickinstall's minisign check is its only proof; GitHub attestations are never queried.
+		let (stage, record) = install(fake(true, true, None));
+		assert_eq!(record.unwrap().source, "quickinstall");
+		assert!(
+			stage
+				.path()
+				.join("bin")
+				.join(format!("tool{}", std::env::consts::EXE_SUFFIX))
+				.is_file()
+		);
+		let (stage, result) = install(fake(true, false, None));
+		assert!(matches!(
+			result.unwrap_err().downcast_ref(),
+			Some(fetchers::FetchError::InvalidSignature)
+		));
+		assert!(!unpacked(stage.path()));
+		// An author release outside GitHub has no attestation to check, and says so.
+		let (_, record) = install(fake(false, true, Some(("https://example.com/tool.tgz", None))));
+		assert_eq!(
+			record.unwrap().source,
+			"author release (repository does not support GitHub attestations)"
+		);
+		let (stage, result) = install(fake(false, false, Some(("https://example.com/tool.tgz", None))));
+		assert!(result.is_err());
+		assert!(!unpacked(stage.path()));
+		// An archive whose attestation cannot be bound to one repository is never unpacked.
+		let conflict = (
+			"https://github.com/c/d/releases/download/v1.0.0/tool.tgz",
+			Some("https://github.com/a/b"),
+		);
+		let (stage, result) = install(fake(false, true, Some(conflict)));
+		let error = format!("{:#}", result.unwrap_err());
+		assert!(
+			error.contains("the archive comes from GitHub repository c/d"),
+			"{error}"
+		);
+		assert!(!unpacked(stage.path()));
+		let (stage, result) = install(fake(false, true, None));
+		assert!(result.is_err());
+		assert!(!unpacked(stage.path()));
 	}
 }

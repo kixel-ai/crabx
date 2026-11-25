@@ -9,7 +9,7 @@ use std::{
 };
 
 pub(super) use binstalk_downloader::{
-	download::{Download, DownloadError, ExtractedFiles},
+	download::{DataVerifier, DownloadError},
 	remote::{
 		Client, StatusCode, Url,
 		header::{self, HeaderMap},
@@ -126,6 +126,62 @@ pub(super) async fn remote_exists(client: &Client, url: Url) -> Result<bool, Fet
 	Ok(true)
 }
 
+/// The most bytes of a signature file, or of quickinstall's target list, a host may send.
+pub(super) const SMALL_FILE: u64 = 64 << 10;
+
+/// `url`'s body, failing once it passes `limit` bytes.
+pub(super) async fn download_bytes(client: &Client, url: Url, limit: u64) -> Result<Vec<u8>, FetchError> {
+	let mut bytes = Vec::new();
+	read_body(client, url, limit, |chunk| {
+		bytes.extend_from_slice(chunk);
+		Ok(())
+	})
+	.await?;
+	Ok(bytes)
+}
+
+/// Stream `url`'s body into `file` through `verifier`, failing once it passes `limit` bytes.
+pub(super) async fn download_to(
+	client: &Client,
+	url: Url,
+	file: &mut std::fs::File,
+	verifier: &mut dyn DataVerifier,
+	limit: u64,
+) -> Result<(), FetchError> {
+	use std::io::Write;
+	read_body(client, url, limit, |chunk| {
+		verifier.update(chunk);
+		file.write_all(chunk)
+	})
+	.await
+}
+
+async fn read_body(
+	client: &Client,
+	url: Url,
+	limit: u64,
+	mut sink: impl FnMut(&bytes::Bytes) -> std::io::Result<()>,
+) -> Result<(), FetchError> {
+	let mut response = client.get(url.clone()).send(true).await?;
+	let too_large = || FetchError::TooLarge(Box::new(url.clone()), limit);
+	let declared = response.headers().get(header::CONTENT_LENGTH);
+	if declared
+		.and_then(|length| length.to_str().ok()?.parse::<u64>().ok())
+		.is_some_and(|length| length > limit)
+	{
+		return Err(too_large());
+	}
+	let mut total = 0u64;
+	while let Some(chunk) = response.chunk().await? {
+		total += chunk.len() as u64;
+		if total > limit {
+			return Err(too_large());
+		}
+		sink(&chunk).map_err(DownloadError::from)?;
+	}
+	Ok(())
+}
+
 /// Whether a 403 asks the client to wait, as GitHub's rate limits do, rather than refusing it.
 fn rate_limited(headers: &HeaderMap) -> bool {
 	headers.contains_key(header::RETRY_AFTER) || rate_limit_retry_after(headers).is_some()
@@ -164,6 +220,45 @@ where
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn signatures_and_archives_stop_at_their_limit() {
+		struct Counted(u64);
+		impl DataVerifier for Counted {
+			fn update(&mut self, data: &bytes::Bytes) {
+				self.0 += data.len() as u64;
+			}
+			fn validate(&mut self) -> bool {
+				true
+			}
+		}
+		let builder = Client::default_builder("crabx-test", None, true, Default::default(), &mut std::iter::empty());
+		let client = Client::from_builder(builder.no_proxy(), 1.try_into().unwrap(), 100.try_into().unwrap()).unwrap();
+		let serve =
+			|declared| async move { Url::parse(&crate::network::tests::serve(vec![7; 1000], declared).await).unwrap() };
+		crate::network::runtime().unwrap().block_on(async {
+			for declared in [true, false] {
+				let error = download_bytes(&client, serve(declared).await, 999).await.unwrap_err();
+				assert!(matches!(error, FetchError::TooLarge(_, 999)), "{error}");
+				assert_eq!(
+					download_bytes(&client, serve(declared).await, 1000).await.unwrap(),
+					[7; 1000]
+				);
+				let mut file = tempfile::tempfile().unwrap();
+				let mut counted = Counted(0);
+				let error = download_to(&client, serve(declared).await, &mut file, &mut counted, 999).await;
+				assert!(matches!(error, Err(FetchError::TooLarge(_, 999))));
+				// Nothing past the limit is written or verified.
+				assert!(file.metadata().unwrap().len() <= 999 && counted.0 <= 999);
+				let mut file = tempfile::tempfile().unwrap();
+				let mut counted = Counted(0);
+				download_to(&client, serve(declared).await, &mut file, &mut counted, 1000)
+					.await
+					.unwrap();
+				assert_eq!((file.metadata().unwrap().len(), counted.0), (1000, 1000));
+			}
+		});
+	}
 
 	#[test]
 	fn only_a_bare_403_is_a_refusal() {

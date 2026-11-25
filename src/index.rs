@@ -19,6 +19,10 @@ use std::{
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
 
+/// The most bytes of one crate's sparse-index file, which runs to about 1.5 MB for crates with
+/// thousands of releases.
+pub const INDEX_BYTES: u64 = 16 << 20;
+
 /// How long ago a release must have been published for an unpinned run to pick it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MinimumAge(Duration);
@@ -113,7 +117,7 @@ impl Index {
 	/// its validator stands for.
 	pub async fn fetch(cache: &Cache, name: &str, previous: Option<Self>, now: SystemTime) -> Result<Self> {
 		let previous = previous.filter(|index| index.etag.is_some());
-		let mut request = network::client()?.get(format!("https://index.crates.io/{}", index_path(name)));
+		let mut request = network::client()?.get(url(name));
 		if let Some(etag) = previous.as_ref().and_then(|index| index.etag.as_deref()) {
 			request = request.header(header::IF_NONE_MATCH, etag);
 		}
@@ -134,7 +138,7 @@ impl Index {
 				.map(|value| value.to_str().map(str::to_owned))
 				.transpose()?;
 			std::fs::create_dir_all(&cache.root)?;
-			let file = network::spool(response, &cache.root).await?;
+			let file = network::spool(response, &cache.root, INDEX_BYTES).await?;
 			Self::parse(BufReader::new(File::open(file.path())?), etag, now)?
 		};
 		cache::atomic(&Self::path(cache), &serde_json::to_vec(&index)?)?;
@@ -242,6 +246,11 @@ impl Index {
 
 fn timestamp(time: SystemTime) -> String {
 	jiff::Timestamp::try_from(time).map_or_else(|_| format!("{time:?}"), |time| time.to_string())
+}
+
+/// The crate's sparse-index file.
+pub fn url(name: &str) -> String {
+	format!("https://index.crates.io/{}", index_path(name))
 }
 
 fn index_path(name: &str) -> String {

@@ -1,6 +1,5 @@
 use std::{
 	borrow::Cow,
-	path::Path,
 	sync::{Arc, Mutex, OnceLock},
 };
 
@@ -31,12 +30,8 @@ async fn get_quickinstall_supported_targets(client: &Client) -> Result<&'static 
 
 	SUPPORTED_TARGETS
 		.get_or_try_init(|| async {
-			let bytes = client
-				.get(Url::parse(QUICKINSTALL_SUPPORTED_TARGETS_URL)?)
-				.send(true)
-				.await?
-				.bytes()
-				.await?;
+			let url = Url::parse(QUICKINSTALL_SUPPORTED_TARGETS_URL)?;
+			let bytes = download_bytes(client, url, SMALL_FILE).await?;
 
 			let mut v: Vec<CompactString> = String::from_utf8_lossy(&bytes)
 				.split_whitespace()
@@ -109,10 +104,7 @@ impl QuickInstall {
 				Ok(SignatureVerifier::Noop)
 			} else {
 				debug!(url=%self.signature_url, "Downloading signature");
-				match Download::new(self.client.clone(), self.signature_url.clone())
-					.into_bytes()
-					.await
-				{
+				match download_bytes(&self.client, self.signature_url.clone(), SMALL_FILE).await {
 					Ok(signature) => {
 						trace!(?signature, "got signature contents");
 						let config = PkgSigning {
@@ -257,7 +249,7 @@ by rust officially."#,
 		}
 	}
 
-	async fn fetch_and_extract(&self, dst: &Path) -> Result<ExtractedFiles, FetchError> {
+	async fn download(&self, archive: &mut std::fs::File) -> Result<(), FetchError> {
 		self.set_status(Status::AttemptingInstall);
 		let Some(verifier) = self.signature_verifier.get() else {
 			panic!("<QuickInstall as Fetcher>::find has not been called yet!")
@@ -265,17 +257,21 @@ by rust officially."#,
 
 		debug!(url=%self.package_url, "Downloading package");
 		let mut data_verifier = verifier.data_verifier()?;
-		let files =
-			Download::new_with_data_verifier(self.client.clone(), self.package_url.clone(), data_verifier.as_mut())
-				.and_extract(self.pkg_fmt(), dst)
-				.await?;
+		download_to(
+			&self.client,
+			self.package_url.clone(),
+			archive,
+			data_verifier.as_mut(),
+			crate::archive::Limits::RELEASE.archive,
+		)
+		.await?;
 		trace!("validating signature (if any)");
 		if data_verifier.validate() {
 			if let Some(info) = verifier.info() {
 				info!("Verified signature for package '{}': {info}", self.package);
 			}
 			self.set_status(Status::InstalledFromTarball);
-			Ok(files)
+			Ok(())
 		} else {
 			self.set_status(Status::InvalidSignature);
 			Err(FetchError::InvalidSignature)
