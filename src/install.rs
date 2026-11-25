@@ -37,6 +37,11 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 		);
 		fetch(stage.path(), name, version, args.allow_quickinstall).await?
 	};
+	if record.attested() {
+		cache.ratchet.activate()?;
+	}
+	// Held across publishing, so a concurrent activation refuses this release instead of caching it.
+	let _admitted = cache.ratchet.admit(&record, args.require_attestation)?;
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
 	fs::rename(stage.path(), cache.version(&record.version))?;
 	// The rename moved the directory, so there is nothing left to clean up.

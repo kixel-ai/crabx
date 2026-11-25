@@ -1,4 +1,4 @@
-use crate::cli::Spec;
+use crate::{cli::Spec, ratchet::Ratchet};
 use anyhow::{Context, Result, bail, ensure};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -11,6 +11,7 @@ use std::{
 
 pub struct Cache {
 	pub root: PathBuf,
+	pub ratchet: Ratchet,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -22,6 +23,17 @@ pub struct Record {
 }
 
 impl Record {
+	/// Whether crabx verified a GitHub attestation for this release.
+	pub fn attested(&self) -> bool {
+		crate::ratchet::attested(&self.source)
+	}
+
+	/// Whether this is the author's own release, rather than quickinstall's or a source build.
+	// An unknown source counts as the author's, so the ratchet covers it.
+	pub fn author(&self) -> bool {
+		!matches!(self.source.as_str(), "quickinstall" | "cargo install --locked")
+	}
+
 	pub fn binary(&self, requested: Option<&str>, krate: &str) -> Result<&str> {
 		let extension = std::env::consts::EXE_SUFFIX;
 		if let Some(requested) = requested {
@@ -63,12 +75,31 @@ impl Cache {
 	// Every mode lives under `v2` so no 0.1 entry runs: those were never checked against 0.2's
 	// attestation policy, or were built by Cargo in the caller's directory. They stay as 0.1 wrote them.
 	fn under(cache_dir: &Path, spec: &Spec, mode: &str) -> Self {
-		let root = cache_dir
-			.join("crabx/v2")
-			.join(binstalk::TARGET)
-			.join(mode)
-			.join(spec.name.to_ascii_lowercase());
-		Self { root }
+		let name = spec.name.to_ascii_lowercase();
+		let host = |layout: &str| cache_dir.join("crabx").join(layout).join(binstalk::TARGET);
+		let root = host("v2").join(mode).join(&name);
+		// Every layout and mode that can hold a verified author release, 0.1's included.
+		let caches = ["v2", "v1"]
+			.into_iter()
+			.flat_map(|layout| ["author", "quickinstall"].map(|mode| host(layout).join(mode).join(&name)))
+			.collect();
+		let ratchet = Ratchet {
+			dir: host("v2").join("attested"),
+			name,
+			caches,
+		};
+		Self { root, ratchet }
+	}
+
+	/// A cache at `root` whose ratchet lives inside it.
+	#[cfg(test)]
+	pub fn at(root: PathBuf) -> Self {
+		let ratchet = Ratchet {
+			dir: root.join("attested"),
+			name: "fixture".into(),
+			caches: vec![root.clone()],
+		};
+		Self { root, ratchet }
 	}
 
 	pub fn version(&self, version: &Version) -> PathBuf {
@@ -210,9 +241,7 @@ mod tests {
 	#[test]
 	fn entries_are_atomic_and_incomplete_entries_fail() {
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let version = Version::new(2, 3, 4);
 		assert!(cache.load(&version).unwrap().is_none());
 		assert!(cache.installed().unwrap().is_empty());
@@ -281,9 +310,7 @@ mod tests {
 	#[test]
 	fn staging_reclaims_interrupted_installs_and_preserves_versions() {
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let _lock = cache.lock().unwrap();
 		fs::create_dir_all(cache.root.join("install-orphan/bin")).unwrap();
 		fs::create_dir(cache.root.join("1.2.3")).unwrap();

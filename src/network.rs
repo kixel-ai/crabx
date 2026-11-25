@@ -112,19 +112,30 @@ pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: Sy
 		None => runtime()?.block_on(Index::fetch(cache, name, None, now))?,
 	};
 	let chosen = (|| -> Result<_> {
-		let choice = index
-			.choose(&cache.installed()?, age, now)
-			.with_context(|| format!("choose a release of {name}"))?;
-		let record = match &choice.installed {
-			Some(version) => cache
-				.load(version)?
-				.with_context(|| format!("{} vanished", cache.version(version).display()))?,
-			None => {
-				let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
-				runtime()?.block_on(install::resolve(cache, name, version, args))?
+		let mut installed = cache.installed()?;
+		loop {
+			let choice = index
+				.choose(&installed, age, now)
+				.with_context(|| format!("choose a release of {name}"))?;
+			let record = match &choice.installed {
+				Some(version) => cache
+					.load(version)?
+					.with_context(|| format!("{} vanished", cache.version(version).display()))?,
+				None => {
+					let version = choice.newest.as_ref().ok_or_else(|| index.too_young(name, age))?;
+					// The run admits or refuses it, naming the release.
+					break Ok((
+						runtime()?.block_on(install::resolve(cache, name, version, args))?,
+						choice.newest,
+					));
+				}
+			};
+			// An older attested release beats a newer one the ratchet refuses.
+			if cache.ratchet.eligible(&record, args.require_attestation)? {
+				break Ok((record, choice.newest));
 			}
-		};
-		Ok((record, choice.newest))
+			installed.remove(&record.version);
+		}
 	})();
 	Ok(match chosen {
 		Ok((record, newest)) => Unpinned {
@@ -164,7 +175,9 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 			return Ok(());
 		};
 		pending = Some(version.clone());
-		install::resolve(cache, name, version, args).await?;
+		let record = install::resolve(cache, name, version, args).await?;
+		// A release cached before the ratchet refused it fails here, so the next run reports why it runs an older one.
+		cache.ratchet.admit(&record, args.require_attestation)?;
 		Ok(())
 	}
 	.await;
@@ -237,8 +250,8 @@ impl Failure {
 	}
 }
 
-pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
-	let caller = cargo::Caller::current()?;
+/// The detached refresh's command, carrying the policy this run applied.
+fn refresh_command(spec: &Spec, args: &Args, age: MinimumAge, caller: &cargo::Caller) -> Result<Command> {
 	let mut command = Command::new(std::env::current_exe()?);
 	command.env(crate::launcher::REFRESH, "1");
 	// The updater outlives this invocation, so it must not keep the caller's directory in use.
@@ -250,7 +263,7 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 		// Resolved here, since the updater runs from another directory. A refused toolchain still
 		// lets the updater fetch the index, which needs no Cargo, so a yank is noticed; it refuses
 		// only to build.
-		match cargo::Toolchain::new(&caller) {
+		match cargo::Toolchain::new(caller) {
 			Ok(toolchain) => toolchain.env(&mut command),
 			Err(error) => {
 				command.env(cargo::REFUSED, format!("{error:#}"));
@@ -260,11 +273,16 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	if args.allow_quickinstall {
 		command.arg("--allow-quickinstall");
 	}
-	command
-		.arg(&spec.name)
-		.stdin(Stdio::null())
-		.stdout(Stdio::null())
-		.stderr(Stdio::null());
+	if args.require_attestation {
+		command.arg("--require-attestation");
+	}
+	command.arg(&spec.name);
+	Ok(command)
+}
+
+pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
+	let mut command = refresh_command(spec, args, age, &cargo::Caller::current()?)?;
+	command.stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
 	#[cfg(unix)]
 	{
 		use std::os::unix::process::CommandExt;
@@ -370,9 +388,7 @@ pub mod tests {
 	fn unpinned_runs_refresh_only_when_a_check_is_due_or_a_newer_release_qualifies() {
 		use clap::Parser;
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let entry = cache.version(&Version::new(1, 2, 3));
 		fs::create_dir_all(entry.join("bin")).unwrap();
 		fs::write(entry.join("bin/tool"), "fixture").unwrap();
@@ -421,11 +437,82 @@ pub mod tests {
 	}
 
 	#[test]
+	fn an_active_ratchet_runs_the_newest_attested_release_and_refreshes() {
+		use clap::Parser;
+		let temp = tempfile::tempdir().unwrap();
+		let cache = Cache::at(temp.path().to_owned());
+		let entry = |version: &str, source: &str| {
+			let entry = cache.version(&Version::parse(version).unwrap());
+			fs::create_dir_all(entry.join("bin")).unwrap();
+			fs::write(entry.join("bin/tool"), "fixture").unwrap();
+			let record = serde_json::json!({ "version": version, "bins": ["tool"], "source": source });
+			fs::write(entry.join("record.json"), record.to_string()).unwrap();
+		};
+		entry("2.0.0", "author release (no published attestation)");
+		let checked = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000_000);
+		let day = Duration::from_secs(24 * 3600);
+		fs::write(
+			cache.root.join("index.json"),
+			serde_json::to_vec(&serde_json::json!({
+				"etag": null,
+				"checked": checked,
+				"releases": [
+					{ "version": "2.0.0", "published": checked - day * 2 },
+					{ "version": "1.0.0", "published": checked - day * 3 },
+				],
+			}))
+			.unwrap(),
+		)
+		.unwrap();
+		let run = |args: &[&str]| {
+			let args = Args::parse_from(["crabx"].iter().chain(args).chain(&["fixture"]));
+			let run = unpinned(&cache, "fixture", &args, "24h".parse().unwrap(), checked).unwrap();
+			let record = run.record.unwrap();
+			let admitted = cache.ratchet.admit(&record, args.require_attestation).map(|_| ());
+			(record.version.to_string(), run.refresh, admitted.is_ok())
+		};
+		assert_eq!(run(&[]), ("2.0.0".into(), false, true));
+		assert_eq!(run(&["--require-attestation"]), ("2.0.0".into(), false, false));
+		// Cached after the one-time scan, as by a crabx without the ratchet, so only the strict
+		// policy prefers it, and its refresh retries the newest.
+		entry("1.0.0", "GitHub attestations (1) sha256:00");
+		assert_eq!(run(&["--require-attestation"]), ("1.0.0".into(), true, true));
+		assert_eq!(run(&[]), ("2.0.0".into(), false, true));
+		cache.ratchet.activate().unwrap();
+		assert_eq!(run(&[]), ("1.0.0".into(), true, true));
+		// With no attested release left, the newest is chosen and refused.
+		fs::remove_dir_all(cache.version(&Version::new(1, 0, 0))).unwrap();
+		assert_eq!(run(&[]), ("2.0.0".into(), false, false));
+	}
+
+	#[test]
+	fn refreshes_carry_the_runs_policy() {
+		use clap::Parser;
+		let caller = cargo::Caller::current().unwrap();
+		let args = |args: &[&str]| {
+			let args = Args::parse_from(["crabx"].iter().chain(args).chain(&["fixture"]));
+			let command =
+				refresh_command(&Spec::parse("fixture").unwrap(), &args, "1h".parse().unwrap(), &caller).unwrap();
+			command
+				.get_args()
+				.map(|arg| arg.to_str().unwrap().to_owned())
+				.collect::<Vec<_>>()
+		};
+		assert_eq!(args(&[]), ["--minimum-release-age", "1h", "fixture"]);
+		assert_eq!(
+			args(&["--require-attestation"]),
+			["--minimum-release-age", "1h", "--require-attestation", "fixture"]
+		);
+		assert_eq!(
+			args(&["--allow-quickinstall"]),
+			["--minimum-release-age", "1h", "--allow-quickinstall", "fixture"]
+		);
+	}
+
+	#[test]
 	fn failures_back_off_and_each_diagnostic_has_one_claim() {
 		let temp = tempfile::tempdir().unwrap();
-		let cache = Cache {
-			root: temp.path().to_owned(),
-		};
+		let cache = Cache::at(temp.path().to_owned());
 		let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1000);
 		let error = anyhow::anyhow!("no release for host");
 		let failure = Failure::next(None, Some(&error), None, now).unwrap();

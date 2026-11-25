@@ -126,6 +126,7 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 		}
 	};
 	record.binary(parsed.bin.as_deref(), &spec.name)?;
+	cache.ratchet.admit(&record, parsed.require_attestation)?;
 	// One install at a time, so each record names the file its launcher holds. Taken only after
 	// resolving, so a build script that runs `crabx install` can't wait on its own parent.
 	let _lock = Launcher::lock()?;
