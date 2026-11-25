@@ -34,5 +34,4 @@ Recommendations:
 
 ## Required
 
-- [0.1.1](/quest/m0/release-0.1.1.md) - cut before this lands, so 0.1.1 ships only the musl fallback
 - [Attestation binding](/quest/m1/attestation-binding.md) - moves 0.2.0 caches to `crabx/v2/` while keeping legacy `crabx/v1/` directories read-only so upgrade history is preserved for the ratchet

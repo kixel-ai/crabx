@@ -8,7 +8,7 @@ The published bootstrap commands in `README.md` and `site/index.html`, along wit
 
 Found 2026-11-24 in a pre-release security audit. Caused by `kixel-ai/rust2#826` (initial installers).
 
-Decided 2026-11-24 (maintainer, /quest-plan): ✅ harden both installers in `m0` (users run them directly from `main` via GitHub Pages, and this does not touch the Rust crate or delay [0.1.1](/quest/m0/release-0.1.1.md)).
+Decided 2026-11-24 (maintainer, /quest-plan): ✅ harden both installers in `m0` (users run them directly from `main` via GitHub Pages, and this does not touch the Rust crate or delay 0.1.1).
 
 Changes to make:
 

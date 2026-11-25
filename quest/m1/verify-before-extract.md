@@ -8,7 +8,7 @@ Every published or policy-required signature and attestation is verified before 
 
 Found 2026-11-24 in a pre-release security audit. Caused by `kixel-ai/rust2#758` (runner).
 
-Decided 2026-11-24 (maintainer, /quest-plan): ✅ ship this in `m1` for [0.2.0](/quest/m1/release-0.2.md), requiring [0.1.1](/quest/m0/release-0.1.1.md) so `0.1.1` stays musl-only.
+Decided 2026-11-24 (maintainer, /quest-plan): ✅ ship this in `m1` for [0.2.0](/quest/m1/release-0.2.md), after 0.1.1 so `0.1.1` stays musl-only. 0.1.1 was cut from `main` at 48d08ef ([#39](https://github.com/kixel-ai/crabx/pull/39)), so this no longer waits on it.
 
 Changes to make:
 
@@ -26,6 +26,3 @@ Changes to make:
   - Restrict `bundle_url` scheme check in `src/trust.rs` to `"https"` only (dropping the dead `"http"` arm).
 - Add unit tests for rejecting oversized compressed and expanded `.crate` / `Cargo.toml` metadata on cold-install and refresh paths, oversized archives, extracted-size bombs, archives exceeding the entry budget, oversized `.sig`/bundles, excessive pagination, verifying extraction does not run when minisign or GitHub attestation verification fails, and confirming both quickinstall (minisign-verified without `trust::verify`) and unsigned/unattested author releases extract with their expected `source` labels.
 
-## Required
-
-- [0.1.1](/quest/m0/release-0.1.1.md) - cut before this lands, so 0.1.1 ships only the musl fallback
