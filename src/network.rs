@@ -240,7 +240,7 @@ impl Update<'_> {
 
 pub fn spawn_refresh(spec: &Spec, args: &Args) -> Result<()> {
 	let mut command = Command::new(std::env::current_exe()?);
-	command.arg("--refresh");
+	command.env(crate::launcher::REFRESH, "1");
 	if args.build {
 		command.arg("--build");
 	}
