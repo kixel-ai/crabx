@@ -32,7 +32,9 @@ Cloudflare has the challenge TXT record and the `crabx` CNAME to `kixel-ai.githu
 only; and only `main` may deploy to the `github-pages`, `crates-io`, and `npm` environments.
 The installers deployed and HTTPS is enforced, so `curl -fsSL https://crabx.kixel.ai/install.sh`
 prints the installer. GitHub issued the certificate only after the custom domain was removed
-and set again. The move redid the Pages and environment steps in `kixel-ai/crabx`.
+and set again. The move redid the Pages and environment steps in `kixel-ai/crabx`. On
+2026-11-25 the site moved to `crabx.kixel.me` (verified for Pages too) and the kixel.ai
+`crabx` CNAME was deleted.
 
 Decided 2026-11-24 (maintainer, /quest-run): the npm user `crabx`, the only member of the
 existing `crabx` npm organization, isn't the maintainer's (signed in as `kixelated`, who isn't
