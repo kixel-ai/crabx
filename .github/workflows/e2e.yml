@@ -129,10 +129,12 @@ jobs:
       - env:
           GITHUB_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.plan.outputs.version }}
-        # Without optional dependencies, npm can't swap in the registry's platform package.
+        # Without optional dependencies, npm can't swap in the registry's platform package. npm
+        # reads a relative `tarballs/x.tgz` as a GitHub repository, so pass native absolute paths.
         run: |
           platform=$(node -p "require('./npm/crabx.js').packageName(process.platform, process.arch).replace('@', '').replace('/', '-')")
-          tests/install.sh fnox@1.50.0 --omit=optional "tarballs/kixel-crabx-$VERSION.tgz" "tarballs/$platform-$VERSION.tgz"
+          tarballs=$(node -p "require('path').resolve('tarballs')")
+          tests/install.sh fnox@1.50.0 --omit=optional "$tarballs/kixel-crabx-$VERSION.tgz" "$tarballs/$platform-$VERSION.tgz"
 
   test:
     strategy:

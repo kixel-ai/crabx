@@ -77,9 +77,8 @@ pub fn args(name: &str, args: impl Iterator<Item = OsString>) -> Result<cli::Arg
 /// Run `crabx install [OPTIONS] [CRATE[@VERSION]]`, given the arguments after `install`.
 pub fn install(args: Vec<OsString>) -> Result<()> {
 	let dir = directory()?;
-	// One install at a time, so each record names the file its launcher holds.
-	let _lock = Launcher::lock()?;
 	let Some(last) = args.last() else {
+		let _lock = Launcher::lock()?;
 		install_self(&dir)?;
 		return on_path(&dir);
 	};
@@ -107,7 +106,38 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	);
 	let name = spec.name.to_ascii_lowercase();
 	let path = dir.join(format!("{name}{EXE}"));
-	let existing = Launcher::load(&name)?;
+	// Checked before resolving too, so a conflict fails before a long --build.
+	check(&dir, &name, &path)?;
+	// A typo, a crate with no usable release, or an ambiguous binary fails now, not on the first run.
+	let cache = cache::Cache::new(&spec, parsed.mode())?;
+	let record = network::runtime()?.block_on(install::resolve(&cache, &spec, &parsed))?;
+	record.binary(parsed.bin.as_deref(), &spec.name)?;
+	// One install at a time, so each record names the file its launcher holds. Taken only after
+	// resolving, so a build script that runs `crabx install` can't wait on its own parent.
+	let _lock = Launcher::lock()?;
+	check(&dir, &name, &path)?;
+	install_self(&dir)?;
+	// Read after install_self, whose relink changes a Windows launcher's digest.
+	let sha256 = Launcher::load(&name)?
+		.filter(|recorded| recorded.path == path)
+		.map(|recorded| recorded.sha256)
+		.unwrap_or_default();
+	let mut launcher = Launcher {
+		path,
+		args: args.iter().map(arg).collect::<Result<_>>()?,
+		sha256,
+	};
+	link(&dir, &name, &mut launcher)?;
+	eprintln!(
+		"crabx install: installed {}, which runs {krate} through crabx",
+		launcher.path.display()
+	);
+	on_path(&dir)
+}
+
+/// Fail if installing `name` at `path` would replace another launcher or a file crabx doesn't own.
+fn check(dir: &Path, name: &str, path: &Path) -> Result<()> {
+	let existing = Launcher::load(name)?;
 	if let Some(existing) = &existing
 		&& existing.path != path
 		&& existing.found()? == Found::Launcher
@@ -120,27 +150,11 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	}
 	let recorded = existing.as_ref().filter(|existing| existing.path == path);
 	ensure!(
-		found(&path, recorded)? != Found::Other,
+		found(path, recorded)? != Found::Other,
 		"{} exists and is not crabx's launcher; delete it, or set CRABX_INSTALL_DIR to install elsewhere",
 		path.display()
 	);
-	// A typo, a crate with no usable release, or an ambiguous binary fails now, not on the first run.
-	let cache = cache::Cache::new(&spec, parsed.mode())?;
-	let record = network::runtime()?.block_on(install::resolve(&cache, &spec, &parsed))?;
-	record.binary(parsed.bin.as_deref(), &spec.name)?;
-	let sha256 = recorded.map(|recorded| recorded.sha256.clone()).unwrap_or_default();
-	install_self(&dir)?;
-	let mut launcher = Launcher {
-		path,
-		args: args.iter().map(arg).collect::<Result<_>>()?,
-		sha256,
-	};
-	link(&dir, &name, &mut launcher)?;
-	eprintln!(
-		"crabx install: installed {}, which runs {krate} through crabx",
-		launcher.path.display()
-	);
-	on_path(&dir)
+	Ok(())
 }
 
 /// `CRABX_INSTALL_DIR`, else `~/.local/bin`, as install.sh and install.ps1 use.

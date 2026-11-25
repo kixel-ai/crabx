@@ -57,7 +57,8 @@ then rather than on its first run. crabx records each launcher, with its version
 under its state directory (`~/.local/state/crabx` on Linux, the local application data
 directory elsewhere); delete a launcher to uninstall it. It never overwrites a file it didn't
 install there, nor installs a name already installed in another directory. Bare
-`crabx install` also relinks Windows launchers to the crabx it installs. On Windows it adds the
+`crabx install` also relinks Windows launchers to the crabx it installs; if one interrupted
+there leaves a launcher missing, run `crabx install CRATE` again. On Windows it adds the
 directory to the user's `Path`; on Unix it says when PATH lacks it. Run a crate named
 `install` as `crabx install@VERSION`.
 
