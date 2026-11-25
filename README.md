@@ -19,6 +19,7 @@ Install crabx once, from its release:
 curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
 npm install -g @kixel/crabx
+npx @kixel/crabx install
 cargo install crabx
 ```
 
@@ -39,7 +40,7 @@ Options go before the crate. Everything after it, including flags, spaces, and
 non-UTF-8 arguments on Unix, goes to the downloaded binary. A crate with several
 binaries uses the one named after the crate, or its only binary. Otherwise choose
 `--bin NAME`.
-From crabx 0.2.0, `crabx install` puts crabx on PATH, in the installers' directory, copying itself there when it
+`crabx install` puts crabx on PATH, in the installers' directory, copying itself there when it
 runs from elsewhere, such as npm's cache. `crabx install CRATE[@VERSION]` also puts a launcher
 named after the crate there, so `moq-cli --help` runs `crabx moq-cli --help`:
 
