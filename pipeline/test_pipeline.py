@@ -1,15 +1,18 @@
 """Exercise release discovery, tag validation, and recovery without write credentials."""
 
+import hashlib
 import importlib.util
 import io
 import json
 import os
 from pathlib import Path
 import re
+import stat
 import tarfile
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 spec = importlib.util.spec_from_file_location("pipeline", Path(__file__).with_name("pipeline.py"))
 p = importlib.util.module_from_spec(spec)
@@ -238,6 +241,140 @@ class Pipeline(unittest.TestCase):
         for release in found["releases"]["include"]:
             self.assertLessEqual(reads("crabx.yml"), release.keys())
         self.assertEqual(self.outputs("discover"), {"builds": {"include": []}, "releases": {"include": []}, "any": False})
+
+    def test_build_runs_cargo_without_runner_apis(self):
+        metadata = json.dumps({"target_directory": "target", "packages": [{"name": "demo", "version": "1.2.3", "targets": [{"name": "demo", "kind": ["bin"]}]}]})
+        runner = {name: "secret" for name in p.RUNNER_ENV}
+        with patch.dict(os.environ, {**runner, "PATH": "/bin"}), patch.object(p, "run", side_effect=[metadata, RuntimeError("stop")]) as run, self.assertRaisesRegex(RuntimeError, "stop"):
+            p.build(ITEM, "x86_64-unknown-linux-gnu")
+        for call in run.call_args_list:
+            self.assertFalse(p.RUNNER_ENV & call.kwargs["env"].keys())
+            self.assertEqual(call.kwargs["env"]["PATH"], "/bin")
+
+    def test_uploads_and_downloads_cover_every_target(self):
+        root = Path(__file__).parents[1]
+        build = (root / ".github/workflows/crabx-build.yml").read_text()
+        # The upload's name and path, and the job name the publish job finds, follow artifact() and asset().
+        self.assertIn("name: crabx-${{ matrix.name }}@${{ matrix.version }}@${{ matrix.target }}\n    strategy", build)
+        self.assertIn("path: archives/${{ matrix.name }}-${{ matrix.target }}-v${{ matrix.version }}.tgz", build)
+        action = (root / ".github/actions/crabx-archives/action.yml").read_text()
+        self.assertEqual(re.findall(r"path: \$\{\{ runner.temp \}\}/crabx/(\S+)", action), [t for t, _ in p.TARGETS])
+
+    def run_api(self, artifacts, jobs):
+        """Answer inventory()'s paginated artifact and job listings."""
+        def run(*args, **kwargs):
+            path = args[-1]
+            if "/artifacts?" in path:
+                return json.dumps([{"artifacts": artifacts[:1]}, {"artifacts": artifacts[1:]}])
+            if "/jobs?" in path:
+                return json.dumps([{"jobs": jobs}])
+            raise AssertionError(path)
+        return patch.object(p, "run", side_effect=run)
+
+    def inventory(self, item, artifacts, jobs):
+        with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "GITHUB_RUN_ID": "9"}), self.run_api(artifacts, jobs):
+            return p.inventory(item)
+
+    @staticmethod
+    def uploaded(item, target, id, digest="sha256:" + "0" * 64, expired=False):
+        return {"id": id, "name": p.artifact(item, target), "digest": digest, "expired": expired}
+
+    @staticmethod
+    def job(item, target, conclusion="success", attempt=1, caller="build"):
+        return {"name": f"{caller} / {p.artifact(item, target)}", "run_attempt": attempt, "status": "completed", "conclusion": conclusion}
+
+    def test_inventory(self):
+        all_targets = [t for t, _ in p.TARGETS]
+        artifacts = [self.uploaded(ITEM, t, n) for n, t in enumerate(all_targets)]
+        jobs = [self.job(ITEM, t) for t in all_targets]
+        found = self.inventory(ITEM, artifacts, jobs)
+        self.assertEqual({t: e["id"] for t, e in found.items()}, dict(zip(all_targets, range(6))))
+        # A backfill of one missing target needs only that target's artifact and job.
+        last = {**ITEM, "targets": all_targets[-1:]}
+        self.assertEqual(list(self.inventory(last, artifacts[-1:], jobs[-1:])), all_targets[-1:])
+        # Another crate's failed build or duplicate artifact holds back only that crate.
+        other = {**ITEM, "name": "other"}
+        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(other, all_targets[0], 50)] * 2, jobs + [self.job(other, all_targets[0], "failure")])), 6)
+        # "Re-run failed jobs" keeps the prior attempt's successful builds and their artifacts.
+        rerun = jobs[1:] + [self.job(ITEM, all_targets[0], "failure"), self.job(ITEM, all_targets[0], attempt=2)]
+        self.assertEqual(len(self.inventory(ITEM, artifacts, rerun)), 6)
+        # An expired artifact is neither a duplicate nor an archive.
+        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(ITEM, all_targets[0], 60, expired=True)], jobs)), 6)
+        for case, artifacts_, jobs_, error in (
+            ("missing artifact", artifacts[1:], jobs, "found 0"),
+            ("only an expired artifact", [{**artifacts[0], "expired": True}] + artifacts[1:], jobs, "found 0"),
+            ("duplicate artifact", artifacts + [self.uploaded(ITEM, all_targets[0], 70)], jobs, "found 2"),
+            ("failed build", artifacts, jobs[1:] + [self.job(ITEM, all_targets[0], "failure")], "did not succeed"),
+            ("missing build job", artifacts, jobs[1:], "did not succeed"),
+            ("unfinished build job", artifacts, jobs[1:] + [{**jobs[0], "status": "in_progress", "conclusion": None}], "did not succeed"),
+            ("ambiguous build job", artifacts, jobs + [self.job(ITEM, all_targets[0], caller="other")], "did not succeed"),
+            # Re-running a build that already uploaded fails its upload, so its latest attempt fails.
+            ("re-run uploaded build", artifacts, jobs + [self.job(ITEM, all_targets[0], "failure", attempt=2)], "did not succeed"),
+            ("job name suffix only", artifacts, jobs[1:] + [{**jobs[0], "name": "build / x" + p.artifact(ITEM, all_targets[0])}], "did not succeed"),
+            ("missing digest", [{**artifacts[0], "digest": None}] + artifacts[1:], jobs, "no SHA-256"),
+        ):
+            with self.subTest(case), self.assertRaisesRegex(ValueError, error):
+                self.inventory(ITEM, artifacts_, jobs_)
+
+    def zipped(self, path, members):
+        """Write an artifact ZIP holding (name, data, unix mode) members, and return its inventory entry."""
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, data, mode in members:
+                info = zipfile.ZipInfo(name)
+                info.external_attr = mode << 16
+                archive.writestr(info, data)
+        return {"id": 1, "digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()}
+
+    def collect(self, item, layout):
+        """Run collect() over per-target downloads, each a list of ZIP members or None for no download."""
+        with tempfile.TemporaryDirectory() as tmp:
+            downloads = Path(tmp, "crabx")
+            found = {}
+            for target, members in layout.items():
+                (downloads / target).mkdir(parents=True)
+                if members is not None:
+                    found[target] = self.zipped(downloads / target / "artifact.zip", members)
+            out = Path(tmp, "archives")
+            p.collect(item, found, downloads, out)
+            return {path.name: path.read_bytes() for path in out.iterdir()}
+
+    def test_collect(self):
+        target = p.TARGETS[0][0]
+        item = {**ITEM, "targets": [target]}
+        name = p.asset(item, target)
+        regular = stat.S_IFREG | 0o644
+        self.assertEqual(self.collect(item, {target: [(name, b"tgz", regular)]}), {name: b"tgz"})
+        # A ZIP may record permissions without a file type.
+        self.assertEqual(self.collect(item, {target: [(name, b"tgz", 0o644)]}), {name: b"tgz"})
+        everything = {t: [(p.asset(ITEM, t), t.encode(), regular)] for t, _ in p.TARGETS}
+        self.assertEqual(self.collect(ITEM, everything), {p.asset(ITEM, t): t.encode() for t, _ in p.TARGETS})
+        for case, members, error in (
+            ("missing archive", None, "one downloaded artifact"),
+            ("extra archive", [(name, b"tgz", regular), ("other.tgz", b"x", regular)], "only"),
+            ("wrong filename", [(p.asset(item, p.TARGETS[1][0]), b"tgz", regular)], "only"),
+            ("traversal", [("../" + name, b"tgz", regular)], "only"),
+            ("symlink", [(name, b"/etc/passwd", stat.S_IFLNK | 0o777)], "regular file"),
+            ("directory", [(name + "/", b"", stat.S_IFDIR | 0o755)], "only"),
+        ):
+            with self.subTest(case), self.assertRaisesRegex(ValueError, error):
+                self.collect(item, {target: members})
+        # Nothing is unpacked from a ZIP whose digest is not the artifact's.
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp, "crabx", target)).mkdir(parents=True)
+            entry = self.zipped(Path(tmp, "crabx", target, "artifact.zip"), [(name, b"tgz", regular)])
+            with self.assertRaisesRegex(ValueError, "digest"):
+                p.collect(item, {target: {**entry, "digest": "sha256:" + "0" * 64}}, Path(tmp, "crabx"), Path(tmp, "archives"))
+            self.assertEqual(list(Path(tmp, "archives").iterdir()), [])
+            # A staging directory left from before is never added to.
+            with self.assertRaises(FileExistsError):
+                p.collect(item, {target: entry}, Path(tmp, "crabx"), Path(tmp, "archives"))
+        # A second downloaded file beside the artifact is refused.
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "crabx", target).mkdir(parents=True)
+            entry = self.zipped(Path(tmp, "crabx", target, "artifact.zip"), [(name, b"tgz", regular)])
+            Path(tmp, "crabx", target, "extra").write_bytes(b"")
+            with self.assertRaisesRegex(ValueError, "one downloaded artifact"):
+                p.collect(item, {target: entry}, Path(tmp, "crabx"), Path(tmp, "archives"))
 
     def test_a_backfill_past_the_matrix_limit_fails(self):
         items = [{**ITEM, "version": f"1.0.{n}"} for n in range(256 // len(p.TARGETS) + 1)]

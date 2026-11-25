@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       builds: ${{ steps.plan.outputs.builds }}
+      releases: ${{ steps.plan.outputs.releases }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -34,3 +35,18 @@ jobs:
     uses: ./.github/workflows/crabx-build.yml
     with:
       builds: ${{ needs.plan.outputs.builds }}
+  # The publish job's artifact handoff, read-only, so a permission, upload, download,
+  # or digest mismatch fails here instead of in a release.
+  archives:
+    needs: [plan, pr]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: .crabx
+          persist-credentials: false
+      - uses: ./.crabx/.github/actions/crabx-archives
+        with:
+          item: ${{ toJSON(fromJSON(needs.plan.outputs.releases).include[0]) }}
+      - run: ls -l archives
