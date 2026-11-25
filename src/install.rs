@@ -143,40 +143,46 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		)),
 		_ => None,
 	};
-	let mut candidates = Vec::new();
-	let targets = host_targets()
+	let tiers = host_targets()
 		.into_iter()
-		.map(|target| -> Result<Arc<TargetDataErased>> {
-			let target_related_info = TargetTriple::from_str(&target)?;
-			let meta = package.meta.merge_overrides(
-				package
-					.meta
-					.overrides
-					.get_matching(&target, &target_related_info.cfgs()),
-			);
-			Ok(Arc::new(TargetData {
-				target,
-				meta,
-				target_related_info,
-			}))
+		.map(|tier| {
+			tier.into_iter()
+				.map(|target| -> Result<Arc<TargetDataErased>> {
+					let target_related_info = TargetTriple::from_str(&target)?;
+					let meta = package.meta.merge_overrides(
+						package
+							.meta
+							.overrides
+							.get_matching(&target, &target_related_info.cfgs()),
+					);
+					Ok(Arc::new(TargetData {
+						target,
+						meta,
+						target_related_info,
+					}))
+				})
+				.collect::<Result<Vec<_>>>()
 		})
 		.collect::<Result<Vec<_>>>()?;
-	for (name, data) in std::iter::once((package.name.clone(), data.clone())).chain(alternate) {
-		for target in &targets {
-			if !disabled(target, Strategy::CrateMetaData) {
-				candidates.push((
-					name.clone(),
-					GhCrateMeta::new(
-						client.clone(),
-						gh.clone(),
-						data.clone(),
-						target.clone(),
-						SignaturePolicy::IfPresent,
-					),
-				));
-			}
+	let names: Vec<_> = std::iter::once((package.name.clone(), data.clone()))
+		.chain(alternate)
+		.collect();
+	let mut candidates = Vec::new();
+	for (name, data, target) in ordered(&names, &tiers) {
+		if !disabled(target, Strategy::CrateMetaData) {
+			candidates.push((
+				name.clone(),
+				GhCrateMeta::new(
+					client.clone(),
+					gh.clone(),
+					data.clone(),
+					target.clone(),
+					SignaturePolicy::IfPresent,
+				),
+			));
 		}
 	}
+	let targets: Vec<_> = tiers.into_iter().flatten().collect();
 	if quickinstall {
 		for target in &targets {
 			if !disabled(target, Strategy::QuickInstall) {
@@ -203,7 +209,7 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		// Checked after each candidate, even a failed one, so only discovery that reached GitHub's
 		// API needs the token.
 		ensure!(!fetchers::token_rejected(), network::REJECTED_TOKEN);
-		let found = found??;
+		let found = found?.with_context(|| format!("look up {name}'s {} release", fetcher.target()))?;
 		if !found {
 			continue;
 		}
@@ -213,7 +219,11 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		"no usable prebuilt release for {}@{} on {}; use --build to compile explicitly",
 		package.name,
 		package.version,
-		binstalk::TARGET
+		targets
+			.iter()
+			.map(|t| t.target.as_str())
+			.collect::<Vec<_>>()
+			.join(" or ")
 	)
 }
 
@@ -281,6 +291,24 @@ impl Package {
 				sources.insert(file.source.clone()),
 				"release maps several binaries to the same file"
 			);
+			// Only a static musl build for this machine runs on a glibc host; a dynamic one needs a loader it lacks.
+			if fetcher.target().ends_with("-linux-musl") {
+				let dynamic = elf_interpreter(&file.source, fetcher.target()).with_context(|| {
+					format!(
+						"{}@{}'s {} build is not a usable executable; use --build to compile explicitly",
+						self.name,
+						self.version,
+						fetcher.target()
+					)
+				})?;
+				ensure!(
+					!dynamic,
+					"{}@{}'s only Linux build, {}, links dynamically against musl; use --build to compile explicitly",
+					self.name,
+					self.version,
+					fetcher.target()
+				);
+			}
 			files.push(file);
 		}
 		ensure!(!files.is_empty(), "release contains no runnable binary");
@@ -415,20 +443,164 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 	})
 }
 
-fn host_targets() -> Vec<String> {
-	let mut targets = vec![binstalk::TARGET.to_owned()];
+/// Whether a 64-bit ELF executable for `target`'s machine names a program interpreter, so it links dynamically.
+fn elf_interpreter(path: &Path, target: &str) -> Result<bool> {
+	use std::io::{Read, Seek, SeekFrom};
+	const PT_INTERP: u32 = 3;
+	let machine = match target.split('-').next() {
+		Some("x86_64") => 62,
+		Some("aarch64") => 183,
+		_ => bail!("no ELF machine is known for {target}"),
+	};
+	let mut file = fs::File::open(path)?;
+	let length = file.metadata()?.len();
+	let mut header = [0; 64];
+	file.read_exact(&mut header).context("binary is too short for ELF")?;
+	ensure!(header.starts_with(b"\x7fELF"), "binary is not ELF");
+	ensure!(
+		header[4] == 2 && header[5] == 1,
+		"binary is not 64-bit little-endian ELF"
+	);
+	let u16_at = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]) as u64;
+	ensure!(u16_at(0x12) == machine, "binary is not built for {target}");
+	let offset = u64::from_le_bytes(header[0x20..0x28].try_into().unwrap());
+	let (size, count, entry_size) = (u16_at(0x36), u16_at(0x38), 56);
+	ensure!(
+		size == entry_size && count > 0 && offset.checked_add(size * count).is_some_and(|end| end <= length),
+		"binary has malformed or truncated ELF program headers"
+	);
+	// Linux's loader requires exactly its own entry size and at least one entry.
+	let mut entry = [0; 4];
+	for index in 0..count {
+		file.seek(SeekFrom::Start(offset + index * size))?;
+		file.read_exact(&mut entry)
+			.context("binary has truncated ELF program headers")?;
+		if u32::from_le_bytes(entry) == PT_INTERP {
+			return Ok(true);
+		}
+	}
+	Ok(false)
+}
+
+/// Pairs every name with every target, trying a tier's targets under each name before the next tier's.
+fn ordered<'a, N, D, T>(names: &'a [(N, D)], tiers: &'a [Vec<T>]) -> impl Iterator<Item = (&'a N, &'a D, &'a T)> {
+	tiers.iter().flat_map(move |tier| {
+		names
+			.iter()
+			.flat_map(move |(name, data)| tier.iter().map(move |target| (name, data, target)))
+	})
+}
+
+/// The targets this host runs, in tiers from most to least preferred.
+fn host_targets() -> Vec<Vec<String>> {
+	let mut tiers = vec![vec![binstalk::TARGET.to_owned()]];
 	if cfg!(target_os = "macos") {
-		targets.extend([
+		// A crate-named universal archive still beats a binary-named native one.
+		tiers[0].extend([
 			"universal-apple-darwin".to_owned(),
 			"universal2-apple-darwin".to_owned(),
 		]);
 	}
-	targets
+	// A static musl build runs on any glibc host, so it serves crates that ship no gnu one.
+	let musl = match binstalk::TARGET {
+		"x86_64-unknown-linux-gnu" => Some("x86_64-unknown-linux-musl"),
+		"aarch64-unknown-linux-gnu" => Some("aarch64-unknown-linux-musl"),
+		_ => None,
+	};
+	tiers.extend(musl.map(|target| vec![target.to_owned()]));
+	tiers
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn every_name_tries_a_tier_before_the_next() {
+		let names = [("crate", ()), ("bin", ())];
+		let tiers = [vec!["gnu"], vec!["musl"]];
+		let order: Vec<_> = ordered(&names, &tiers).map(|(n, _, t)| (*n, *t)).collect();
+		assert_eq!(
+			order,
+			[("crate", "gnu"), ("bin", "gnu"), ("crate", "musl"), ("bin", "musl")]
+		);
+		let tiers = [vec!["native", "universal"]];
+		let order: Vec<_> = ordered(&names, &tiers).map(|(n, _, t)| (*n, *t)).collect();
+		assert_eq!(
+			order,
+			[
+				("crate", "native"),
+				("crate", "universal"),
+				("bin", "native"),
+				("bin", "universal")
+			]
+		);
+		let expected: &[&[&str]] = match binstalk::TARGET {
+			"x86_64-unknown-linux-gnu" => &[&["x86_64-unknown-linux-gnu"], &["x86_64-unknown-linux-musl"]],
+			"aarch64-unknown-linux-gnu" => &[&["aarch64-unknown-linux-gnu"], &["aarch64-unknown-linux-musl"]],
+			"aarch64-apple-darwin" => &[&[
+				"aarch64-apple-darwin",
+				"universal-apple-darwin",
+				"universal2-apple-darwin",
+			]],
+			"x86_64-apple-darwin" => &[&[
+				"x86_64-apple-darwin",
+				"universal-apple-darwin",
+				"universal2-apple-darwin",
+			]],
+			target => &[&[target]],
+		};
+		assert_eq!(host_targets(), expected);
+		for target in host_targets().iter().flatten() {
+			TargetTriple::from_str(target).unwrap();
+		}
+	}
+
+	#[test]
+	fn only_dynamic_elf_names_an_interpreter() {
+		let temp = tempfile::tempdir().unwrap();
+		// A 64-bit little-endian header with two program headers at offset 64, 56 bytes each.
+		let elf = |second: u32| {
+			let mut bytes = vec![0u8; 64 + 2 * 56];
+			bytes[..6].copy_from_slice(b"\x7fELF\x02\x01");
+			bytes[0x12..0x14].copy_from_slice(&62u16.to_le_bytes());
+			bytes[0x20..0x28].copy_from_slice(&64u64.to_le_bytes());
+			bytes[0x36..0x38].copy_from_slice(&56u16.to_le_bytes());
+			bytes[0x38..0x3a].copy_from_slice(&2u16.to_le_bytes());
+			bytes[64..68].copy_from_slice(&1u32.to_le_bytes());
+			bytes[120..124].copy_from_slice(&second.to_le_bytes());
+			bytes
+		};
+		let path = temp.path().join("bin");
+		let musl = "x86_64-unknown-linux-musl";
+		fs::write(&path, elf(3)).unwrap();
+		assert!(elf_interpreter(&path, musl).unwrap());
+		fs::write(&path, elf(1)).unwrap();
+		assert!(!elf_interpreter(&path, musl).unwrap());
+		// Built for another machine, or 32-bit.
+		assert!(elf_interpreter(&path, "aarch64-unknown-linux-musl").is_err());
+		let mut narrow = elf(1);
+		narrow[4] = 1;
+		fs::write(&path, narrow).unwrap();
+		assert!(elf_interpreter(&path, musl).is_err());
+		// Truncated anywhere inside the program-header table, even past the last type field.
+		fs::write(&path, &elf(1)[..64 + 56 + 4]).unwrap();
+		assert!(elf_interpreter(&path, musl).is_err());
+		// Linux loads only its own entry size, and only a non-empty table.
+		for (at, value) in [(0x36, 4u16), (0x36, 64), (0x38, 0)] {
+			let mut malformed = elf(1);
+			malformed.resize(64 + 2 * 64, 0);
+			malformed[at..at + 2].copy_from_slice(&value.to_le_bytes());
+			fs::write(&path, malformed).unwrap();
+			assert!(elf_interpreter(&path, musl).is_err());
+		}
+		fs::write(&path, b"#!/bin/sh\n").unwrap();
+		assert!(elf_interpreter(&path, musl).is_err());
+		if cfg!(all(target_os = "linux", target_env = "gnu")) {
+			// This test binary links glibc dynamically.
+			assert!(elf_interpreter(&std::env::current_exe().unwrap(), binstalk::TARGET).unwrap());
+		}
+	}
 
 	#[test]
 	fn stalled_downloads_have_read_and_total_deadlines() {

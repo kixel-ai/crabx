@@ -196,7 +196,7 @@ impl GhCrateMeta {
 					}
 				}
 
-				Ok(Box::pin(client.remote_gettable(url)).await?.then_some(resolved))
+				Ok(remote_exists(&client, url).await?.then_some(resolved))
 			}
 		}));
 	}
@@ -345,7 +345,7 @@ impl super::Fetcher for GhCrateMeta {
 					let resolver = FuturesResolver::default();
 					this.launch_baseline_find_tasks(&resolver, *hint_pkg_fmt, &pkg_url, repo, subcrate);
 
-					if let Some(resolved) = resolver.resolve().await {
+					if let Some(resolved) = resolver.resolve().await? {
 						debug!(?resolved, "Found package with the pkg-url of the last install");
 						self.resolution
 							.set(resolved)
@@ -370,7 +370,7 @@ impl super::Fetcher for GhCrateMeta {
 				}
 			}
 
-			if let Some(resolved) = resolver.resolve().await {
+			if let Some(resolved) = resolver.resolve().await? {
 				debug!(?resolved, "Winning URL found!");
 				self.resolution
 					.set(resolved)

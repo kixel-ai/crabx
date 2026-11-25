@@ -18,6 +18,8 @@ Local changes:
   upstream's workspace docs. Keep a test that the default templates guess
   `{name}-v{version}` and `{name}-{version}` tags; crabx tests execution and trust offline.
 - Wait for resolver channel capacity so a queued error cannot discard a successful candidate.
+- Fail discovery with a candidate's error when no candidate succeeds, instead of reporting
+  a miss, and probe URLs so only a 404, 410, or 403 without rate-limit headers is a miss, so a failed lookup never falls through to a less preferred name or target. Label GitHub API errors as such, not as template errors.
 - Drop private-repository support: no repository-privacy query, no download with the
   GitHub token, and a release asset the API finds is confirmed without the token, so a
   private one reads as missing and the token goes only to GitHub's API.
