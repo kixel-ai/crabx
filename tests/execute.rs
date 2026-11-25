@@ -93,7 +93,7 @@ fn setup(temp: &Path, name: &str) -> std::path::PathBuf {
 			.success()
 	);
 	let root = cache(temp)
-		.join("crabx/v1")
+		.join("crabx/v2")
 		.join(binstalk::TARGET)
 		.join("author")
 		.join(name);
@@ -106,6 +106,36 @@ fn setup(temp: &Path, name: &str) -> std::path::PathBuf {
 	)
 	.unwrap();
 	root
+}
+
+#[test]
+fn legacy_cache_entries_never_run() {
+	let temp = tempfile::tempdir().unwrap();
+	let mut entry = setup(temp.path(), "fixture");
+	// 0.1 wrote its entries, before any 0.2 attestation policy, under `v1`.
+	for mode in ["author", "quickinstall"] {
+		let legacy = cache(temp.path())
+			.join("crabx/v1")
+			.join(binstalk::TARGET)
+			.join(mode)
+			.join("fixture");
+		fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+		fs::rename(&entry, &legacy).unwrap();
+		entry = legacy.clone();
+		let mut command = crabx(temp.path());
+		if mode == "quickinstall" {
+			command.arg("--allow-quickinstall");
+		}
+		command
+			.arg("fixture@1.2.3")
+			.env("PATH", "")
+			.env("HTTPS_PROXY", "http://127.0.0.1:1");
+		let output = command.output().unwrap();
+		// It is not the entry's exit status, and the entry is left as it was.
+		assert_ne!(output.status.code(), Some(37), "{mode}");
+		assert!(output.stdout.is_empty(), "{mode}");
+		assert!(legacy.join("1.2.3/record.json").is_file() && legacy.join("1.2.3/bin/tool").is_file());
+	}
 }
 
 #[test]

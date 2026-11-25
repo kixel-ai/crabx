@@ -54,7 +54,7 @@ fn setup(temp: &Path) -> PathBuf {
 	)
 	.unwrap();
 	let root = cache(temp)
-		.join("crabx/v1")
+		.join("crabx/v2")
 		.join(binstalk::TARGET)
 		.join("author/fixture");
 	fs::create_dir_all(root.join("1.2.3/bin")).unwrap();

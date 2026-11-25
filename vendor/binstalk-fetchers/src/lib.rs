@@ -375,8 +375,12 @@ pub type TargetDataErased = TargetData<dyn leon::Values + Send + Sync + 'static>
 /// The archive bytes that supplied the extracted files.
 #[derive(Clone, Debug)]
 pub struct Receipt {
-	/// The publisher's repository from crates.io.
+	/// The repository crates.io lists for the crate.
+	pub declared: Option<String>,
+	/// `declared` after redirects, as binstalk derives default archive URLs from it.
 	pub repository: Option<String>,
+	/// Whether the crate's own `pkg-url` chose the archive URL without taking the repository from `{ repo }`.
+	pub explicit: bool,
 	/// The resolved archive URL before redirects.
 	pub url: url::Url,
 	/// SHA-256 of every downloaded archive byte.

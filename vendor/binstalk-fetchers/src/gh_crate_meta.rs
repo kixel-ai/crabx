@@ -444,7 +444,15 @@ impl super::Fetcher for GhCrateMeta {
 			}
 			self.receipt
 				.set(crate::fetchers::Receipt {
+					declared: self.data.repo.clone(),
 					repository: resolved.repo.clone(),
+					// `{ repo }` expands to the redirect-resolved repository, so it names nothing itself.
+					explicit: self
+						.target_data
+						.meta
+						.pkg_url
+						.as_deref()
+						.is_some_and(|url| Template::parse(url).is_ok_and(|template| !template.has_key("repo"))),
 					url: resolved.url.clone(),
 					sha256: data_verifier.digest.finalize().into(),
 				})
