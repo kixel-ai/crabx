@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -36,11 +37,11 @@ NPM_TARGETS = {
 VERSION = re.compile(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?")
 
 
-def fetch(url, accept="*/*"):
+def fetch(url, accept="*/*", timeout=60):
     """The response body, or None when the server has no such resource."""
     request = urllib.request.Request(url, headers={"User-Agent": f"crabx-release (github.com/{REPO})", "Accept": accept})
     try:
-        with urllib.request.urlopen(request, timeout=60) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.read()
     except urllib.error.HTTPError as error:
         if error.code == 404:
@@ -160,12 +161,19 @@ SERVE_BOUND = 600
 SERVE_POLL = 10
 
 
-def unserved(version):
-    """The packages whose versions, in either form npm install fetches, lack version."""
+def unserved(version, deadline=math.inf):
+    """The packages whose versions, in either form npm install fetches, lack version.
+
+    Each request gets only the time left before deadline, a time.monotonic() value, and a
+    package left unchecked at the deadline counts as unserved.
+    """
     stored = version.split("+", 1)[0]
 
     def served(name, accept):
-        body = fetch(f"{NPM}/{name.replace('/', '%2f')}", accept)
+        timeout = min(60, deadline - time.monotonic())
+        if timeout <= 0:
+            return False
+        body = fetch(f"{NPM}/{name.replace('/', '%2f')}", accept, timeout)
         return body is not None and stored in json.loads(body).get("versions", {})
 
     return [name for name in package_names() if not all(served(name, accept) for accept in INSTALL_ACCEPTS)]
@@ -174,8 +182,9 @@ def unserved(version):
 def wait_served(version):
     """Return once npm install resolves every package at version, or fail after SERVE_BOUND seconds."""
     deadline = time.monotonic() + SERVE_BOUND
-    while names := unserved(version):
-        if time.monotonic() >= deadline:
+    while names := unserved(version, deadline):
+        # Fail before a sleep that would end past the bound, rather than after it.
+        if time.monotonic() + SERVE_POLL >= deadline:
             raise SystemExit(f"npm still lacks {', '.join(names)} at {version} after {SERVE_BOUND} seconds")
         time.sleep(SERVE_POLL)
 

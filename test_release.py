@@ -109,7 +109,7 @@ class Plan(unittest.TestCase):
     def run_npm_plan(self, lagging):
         """npm_plan's outputs when npm has 0.2.0 of every package and install resolves all but lagging."""
 
-        def fetch(url, accept="*/*"):
+        def fetch(url, accept="*/*", timeout=60):
             if url == r.INDEX:
                 return index(("0.1.0", False), ("0.2.0", False))
             name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
@@ -148,13 +148,19 @@ class Clock:
 class WaitServed(unittest.TestCase):
     """publish returns only once npm install resolves every package at the version."""
 
-    def wait(self, listed_after):
-        """Run wait_served("0.2.0+build-5"), where each package, in each form, lists 0.2.0 from its time in listed_after on."""
-        clock = Clock()
+    def wait(self, listed_after, latency=0):
+        """Run wait_served("0.2.0+build-5"), where each package, in each form, lists 0.2.0 from its time in listed_after on, and each request takes latency seconds."""
+        clock = self.clock = Clock()
         polls = []
 
-        def fetch(url, accept="*/*"):
+        def fetch(url, accept="*/*", timeout=60):
             self.assertIn(accept, r.INSTALL_ACCEPTS)
+            # The deadline bounds each request, as urlopen's timeout would cut it short.
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(clock.now + timeout, r.SERVE_BOUND)
+            clock.now += min(latency, timeout)
+            if latency > timeout:
+                raise TimeoutError("timed out")
             name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
             polls.append(name)
             versions = {"0.1.0": {}}
@@ -182,6 +188,16 @@ class WaitServed(unittest.TestCase):
     def test_fails_naming_the_packages_still_missing_at_the_bound(self):
         with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
             self.wait({"@kixel/crabx": r.SERVE_BOUND + 1})
+
+    def test_slow_requests_stay_within_the_bound(self):
+        # A poll makes up to 14 requests, so slow ones would overrun the bound unless each gets only what is left of it.
+        with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1}, latency=6)
+        self.assertEqual(self.clock.now, r.SERVE_BOUND)
+        # A request the deadline cuts short fails the wait as a registry error.
+        with self.assertRaises(TimeoutError):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1}, latency=59)
+        self.assertEqual(self.clock.now, r.SERVE_BOUND)
 
     def test_an_absent_package_is_unserved(self):
         with patch.object(r, "fetch", return_value=None):
