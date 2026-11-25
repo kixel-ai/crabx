@@ -18,7 +18,11 @@ fn cache(temp: &Path) -> std::path::PathBuf {
 
 fn crabx(temp: &Path) -> Command {
 	let mut command = Command::new(env!("CARGO_BIN_EXE_crabx"));
-	command.env("HOME", temp).env("XDG_CACHE_HOME", cache(temp));
+	// A developer's own delay would change which seeded release qualifies.
+	command
+		.env("HOME", temp)
+		.env("XDG_CACHE_HOME", cache(temp))
+		.env_remove("CRABX_MINIMUM_RELEASE_AGE");
 	command
 }
 
@@ -314,8 +318,7 @@ fn unpinned_runs_apply_their_own_delay_to_the_cached_index() {
 		command
 			.args(args)
 			.env("PATH", "")
-			.env("HTTPS_PROXY", "http://127.0.0.1:1")
-			.env_remove("CRABX_MINIMUM_RELEASE_AGE");
+			.env("HTTPS_PROXY", "http://127.0.0.1:1");
 		if let Some(age) = age {
 			command.env("CRABX_MINIMUM_RELEASE_AGE", age);
 		}
