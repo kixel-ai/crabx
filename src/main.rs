@@ -3,6 +3,7 @@ mod cli;
 #[path = "../vendor/binstalk-fetchers/src/lib.rs"]
 #[allow(dead_code)] // The imported library exposes more than the runner consumes.
 mod fetchers;
+mod index;
 mod init;
 mod install;
 mod network;
@@ -12,7 +13,7 @@ mod trust;
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::{path::PathBuf, process::Command};
+use std::{path::PathBuf, process::Command, time::SystemTime};
 
 fn main() {
 	if let Err(error) = run(cli::Args::parse()) {
@@ -30,34 +31,44 @@ fn run(args: cli::Args) -> Result<()> {
 	// `init` is crabx's own command; `init@VERSION` still runs the crate named init.
 	if krate.eq_ignore_ascii_case("init") {
 		anyhow::ensure!(
-			args.command.len() == 1 && !args.build && !args.allow_quickinstall && args.bin.is_none() && !args.refresh,
+			args.command.len() == 1
+				&& !args.build
+				&& !args.allow_quickinstall
+				&& args.bin.is_none()
+				&& args.minimum_release_age.is_none()
+				&& !args.refresh,
 			"crabx init takes no options or arguments; run the crate named init as init@VERSION"
 		);
 		return init::run();
 	}
 	let spec = cli::Spec::parse(krate)?;
+	// Checked on pinned runs too, which ignore it, so a malformed value never passes silently.
+	let age = args.minimum_release_age()?;
 	let cache = cache::Cache::new(&spec, args.mode())?;
 	if args.refresh {
-		network::runtime()?.block_on(network::refresh(&cache, &spec, &args))?;
+		anyhow::ensure!(spec.version.is_none(), "only unpinned crates can refresh");
+		network::runtime()?.block_on(network::refresh(&cache, &spec.name, &args, age))?;
 		return Ok(());
 	}
-	if spec.version.is_none() {
-		network::report_refresh_error(&cache)?;
-	}
-	let version = match &spec.version {
-		Some(version) => Some(version.clone()),
-		None => cache.latest()?,
-	};
-	let cached = version.as_ref().map(|v| cache.load(v)).transpose()?.flatten();
-	let record = match cached {
-		Some(record) => record,
-		None => network::runtime()?.block_on(install::resolve(&cache, &spec, &args))?,
+	let (record, refresh) = match &spec.version {
+		// A pin reads no index and, once cached, makes no request.
+		Some(version) => match cache.load(version)? {
+			Some(record) => (record, false),
+			None => (
+				network::runtime()?.block_on(install::resolve(&cache, &spec.name, version, &args))?,
+				false,
+			),
+		},
+		None => {
+			let run = network::unpinned(&cache, &spec.name, &args, age, SystemTime::now())?;
+			(run.record, run.refresh)
+		}
 	};
 	let binary = record.binary(args.bin.as_deref(), &spec.name)?;
 	let path = cache.version(&record.version).join("bin").join(binary);
-	if spec.version.is_none() {
+	if refresh {
 		// The updater owns no terminal handles and never delays this invocation.
-		if let Err(error) = network::spawn_refresh(&spec, &args) {
+		if let Err(error) = network::spawn_refresh(&spec, &args, age) {
 			eprintln!("crabx: could not start background update: {error:#}");
 		}
 	}
