@@ -55,7 +55,7 @@
     </div>
     <div class="run" id="run">
       <pre class="cmd unix"><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">curl</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.sh</span> <span class="tk-op">|</span> <span class="tk-bin">sh</span></span></code></pre>
-      <pre class="cmd windows"><code><span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; <span class="tk-bin">irm</span> <span class="tk-flag">-MaximumRedirection</span> 0 <span class="tk-flag">-ErrorAction</span> Stop <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span></code></pre>
+      <pre class="cmd windows"><code><span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "<span class="tk-bin">curl.exe</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> Out-String <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span></code></pre>
       <button class="copy" type="button" hidden>Copy</button>
     </div>
     <p class="also unix">Then add <code>~/.local/bin</code> to your PATH if the installer says it's missing.</p>

@@ -17,7 +17,7 @@ Install crabx once, from its release:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
-powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 -ErrorAction Stop https://crabx.kixel.me/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
 npm install -g @kixel/crabx
 cargo install crabx
 ```

@@ -1,8 +1,8 @@
 # Checks that install.ps1's Get-Https follows HTTPS redirects and refuses a downgrade to HTTP, bounds
 # redirect loops, and refuses a plain HTTP URL; and that the published launch command's
-# `irm -MaximumRedirection 0 -ErrorAction Stop` fetches without a redirect and refuses any, even one
-# whose body would run. Run it in Windows PowerShell 5.1, whose WebClient and Invoke-WebRequest follow
-# an HTTPS-to-HTTP redirect. A local TLS server stands in for the redirecting host; -Pfx names a
+# `curl.exe --proto '=https' --tlsv1.2 -fsSL | Out-String | iex` runs what an HTTPS redirect leads to but
+# neither runs the body of a redirect to HTTP nor anything it leaves. Run it in Windows PowerShell 5.1,
+# whose WebClient and Invoke-WebRequest follow an HTTPS-to-HTTP redirect. A local TLS server stands in for the redirecting host; -Pfx names a
 # certificate to serve where New-SelfSignedCertificate does not exist.
 param([string]$Pfx)
 $ErrorActionPreference = 'Stop'
@@ -43,6 +43,7 @@ try {
 		param($listener, $cert, $port)
 		# A redirect's body would run if a launcher piped it to iex.
 		$ran = '$global:redirectBodyRan = $true'
+		$fetched = '$global:fetched = $true'
 		$routes = @{
 			'/ok' = '200 OK', $null
 			'/follow' = '302 Found', '/ok'
@@ -61,7 +62,7 @@ try {
 					$head += [char]$byte
 				}
 				$status, $location = $routes[($head -split ' ')[1]]
-				$body = if ($location) { $ran } else { 'ok' }
+				$body = if ($location) { $ran } else { $fetched }
 				$lines = "HTTP/1.1 $status", "Content-Length: $($body.Length)", 'Connection: close'
 				if ($location) { $lines += "Location: $location" }
 				$bytes = [Text.Encoding]::ASCII.GetBytes(($lines -join "`r`n") + "`r`n`r`n" + $body)
@@ -76,20 +77,22 @@ try {
 	$pending = $server.BeginInvoke()
 
 	Get-Https "https://localhost:$port/follow" $file
-	if ((Get-Content -Raw $file) -ne 'ok') { throw 'tests: an HTTPS redirect was not followed' }
+	if ((Get-Content -Raw $file) -ne '$global:fetched = $true') { throw 'tests: an HTTPS redirect was not followed' }
 	Expect-Failure "https://localhost:$port/down" 'non-HTTPS'
 	Expect-Failure "http://localhost:$port/ok" 'non-HTTPS'
 	Expect-Failure "https://localhost:$port/loop" 'too many redirects'
 
 	# PowerShell 7's Invoke-RestMethod ignores the callback above.
 	$trust = if ($PSVersionTable.PSVersion.Major -ge 6) { @{ SkipCertificateCheck = $true } } else { @{} }
-	if ((irm -MaximumRedirection 0 -ErrorAction Stop @trust "https://localhost:$port/ok") -ne 'ok') { throw 'tests: irm -MaximumRedirection 0 did not fetch' }
-	# The published command runs in a session whose error preference is the default.
+	# The published command, but for -k, since the server's certificate is self-signed. Windows
+	# PowerShell's curl is an alias for Invoke-WebRequest, so it names curl.exe; elsewhere it is curl.
+	$curl = if ($IsWindows -eq $false) { 'curl' } else { 'curl.exe' }
 	$ErrorActionPreference = 'Continue'
-	foreach ($path in '/follow', '/down') {
-		$global:redirectBodyRan = $false
-		try { irm -MaximumRedirection 0 -ErrorAction Stop @trust "https://localhost:$port$path" | iex } catch { }
-		if ($global:redirectBodyRan) { throw "tests: the published irm ran the body of the redirect from $path" }
+	foreach ($case in @(('/ok', $true), ('/follow', $true), ('/down', $false), ('/loop', $false))) {
+		$global:fetched = $global:redirectBodyRan = $false
+		try { & $curl --proto '=https' --tlsv1.2 -fsSLk "https://localhost:$port$($case[0])" | Out-String | iex } catch { }
+		if ($global:redirectBodyRan) { throw "tests: the published command ran the body of the redirect from $($case[0])" }
+		if ($global:fetched -ne $case[1]) { throw "tests: the published command fetched=$global:fetched from $($case[0]), not $($case[1])" }
 	}
 	$ErrorActionPreference = $errorAction
 	Write-Host 'Get-Https follows HTTPS redirects and refuses HTTP ones'

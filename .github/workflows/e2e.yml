@@ -151,7 +151,7 @@ jobs:
       # rustup installs rust-toolchain.toml's pinned toolchain on first use.
       - run: cargo test --locked
 
-  # The documented `irm | iex`, run on this checkout's installer. It downloads the published
+  # The documented `curl.exe | iex`, run on this checkout's installer. It downloads the published
   # release, so it needs no build and runs whatever the e2e legs do.
   install-ps1:
     strategy:
@@ -179,12 +179,12 @@ jobs:
         shell: powershell
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
-          powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 -ErrorAction Stop https://crabx.kixel.me/install.ps1 | iex"
+          powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
           if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed: $LASTEXITCODE" }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 
   # The documented `curl | sh`, from crabx.kixel.me, and the page there. Not on pull requests,
-  # whose installers aren't deployed; install-ps1 runs the documented `irm | iex` the same way.
+  # whose installers aren't deployed; install-ps1 runs the documented `curl.exe | iex` the same way.
   site:
     if: ${{ github.event_name != 'pull_request' }}
     runs-on: ubuntu-24.04

@@ -445,7 +445,7 @@ esac""")
 
 
 UNIX_INSTALL = "curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh"
-WINDOWS_INSTALL = """powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 -ErrorAction Stop https://crabx.kixel.me/install.ps1 | iex\""""
+WINDOWS_INSTALL = """powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex\""""
 
 
 class PublishedCommands(unittest.TestCase):
@@ -467,7 +467,7 @@ class PublishedCommands(unittest.TestCase):
         for path in ("README.md", "site/index.html", ".github/workflows/e2e.yml", "install.sh", "install.ps1"):
             text = (HERE / path).read_text()
             self.assertNotIn("curl -fsSL", text, path)
-            self.assertNotIn("irm https://", text, path)
+            self.assertNotIn("irm ", text, path)
 
 
 def jobs():
