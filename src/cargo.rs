@@ -406,7 +406,7 @@ mod tests {
 		caller.cargo_home = Some(work.join("opt/cargo").into_os_string());
 		Toolchain::new(&caller).unwrap();
 		caller.dir = work.join("opt");
-		assert!(error(&caller).contains(&work.join("opt/.cargo/config").display().to_string()));
+		assert!(error(&caller).contains(&work.join("opt").join(".cargo/config").display().to_string()));
 	}
 
 	#[test]
