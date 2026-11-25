@@ -11,6 +11,7 @@ mod install;
 mod launcher;
 mod network;
 mod origin;
+mod ratchet;
 mod registry;
 #[path = "../vendor/binstalk-target.rs"]
 mod target;
@@ -38,7 +39,11 @@ fn start(refresh: bool) -> Result<()> {
 	let args = cli::Args::parse();
 	// crabx's own commands; `init@VERSION` and `install@VERSION` still run the crates so named.
 	let command = args.command.first().and_then(|arg| arg.to_str()).unwrap_or_default();
-	let options = args.build || args.allow_quickinstall || args.bin.is_some() || args.minimum_release_age.is_some();
+	let options = args.build
+		|| args.allow_quickinstall
+		|| args.require_attestation
+		|| args.bin.is_some()
+		|| args.minimum_release_age.is_some();
 	if !refresh && command.eq_ignore_ascii_case("init") {
 		anyhow::ensure!(
 			args.command.len() == 1 && !options,
@@ -90,22 +95,29 @@ fn run(args: cli::Args, refresh: bool) -> Result<()> {
 	};
 	let binary = record.binary(args.bin.as_deref(), &spec.name)?;
 	let path = cache.version(&record.version).join("bin").join(binary);
-	execute(path, args.command.into_iter().skip(1).collect())
+	// Taken after the refresh starts, so the updater never inherits it.
+	let admitted = cache.ratchet.admit(&record, args.require_attestation)?;
+	execute(path, args.command.into_iter().skip(1).collect(), admitted)
 }
 
-fn execute(path: PathBuf, args: Vec<std::ffi::OsString>) -> Result<()> {
+/// Run `path`, holding `admitted`, the ratchet's lock, until the binary has replaced or started
+/// beside crabx.
+fn execute(path: PathBuf, args: Vec<std::ffi::OsString>, admitted: Option<std::fs::File>) -> Result<()> {
 	let mut command = Command::new(&path);
 	command.args(args);
 	#[cfg(unix)]
 	{
 		use std::os::unix::process::CommandExt;
-		Err(command.exec()).with_context(|| format!("execute {}", path.display()))
+		// The lock's descriptor is close-on-exec, so the kernel releases it as the binary replaces crabx.
+		let error = command.exec();
+		drop(admitted);
+		Err(error).with_context(|| format!("execute {}", path.display()))
 	}
 	#[cfg(windows)]
 	{
-		let status = command
-			.status()
-			.with_context(|| format!("execute {}", path.display()))?;
+		let mut child = command.spawn().with_context(|| format!("execute {}", path.display()));
+		drop(admitted);
+		let status = child?.wait().with_context(|| format!("wait for {}", path.display()))?;
 		std::process::exit(status.code().unwrap_or(1));
 	}
 }

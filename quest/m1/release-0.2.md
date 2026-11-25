@@ -34,7 +34,3 @@ neither can offer it before then.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
-
-## Related
-
-- [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`

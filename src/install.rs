@@ -7,7 +7,9 @@ use crate::{
 		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
 		TargetDataErased,
 	},
-	network, origin, registry,
+	network, origin,
+	ratchet::Ratchet,
+	registry,
 	target::TargetTriple,
 	trust,
 };
@@ -26,6 +28,18 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 	if let Some(record) = cache.load(version)? {
 		return Ok(record);
 	}
+	install(cache, name, version, args).await
+}
+
+/// Download `name@version` again over its cached entry, which the attestation policy now refuses,
+/// in case its author attested it since it was cached.
+pub async fn reinstall(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
+	let _lock = cache.lock()?;
+	install(cache, name, version, args).await
+}
+
+/// Install `name@version`, replacing any cached entry, while holding the installation lock.
+async fn install(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
 	let stage = cache.stage()?;
 	fs::create_dir(stage.path().join("bin"))?;
 	let record = if args.build {
@@ -35,16 +49,29 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 			!cfg!(all(target_os = "linux", target_env = "musl")),
 			"prebuilt binaries require glibc on Linux; use --build on musl"
 		);
-		fetch(stage.path(), name, version, args.allow_quickinstall).await?
+		fetch(stage.path(), name, version, args.allow_quickinstall, &cache.ratchet).await?
 	};
+	// Held across publishing, so a concurrent activation refuses this release instead of caching it.
+	let _admitted = cache.ratchet.admit(&record, args.require_attestation)?;
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
-	fs::rename(stage.path(), cache.version(&record.version))?;
+	let entry = cache.version(&record.version);
+	if entry.try_exists()? {
+		// Moved into a staging directory, which the next install reclaims, as a running binary may still use it.
+		let replaced = tempfile::Builder::new()
+			.prefix("install-")
+			.tempdir_in(&cache.root)?
+			.keep();
+		fs::rename(&entry, replaced.join("replaced"))?;
+	}
+	fs::rename(stage.path(), entry)?;
 	// The rename moved the directory, so there is nothing left to clean up.
 	let _ = stage.keep();
 	Ok(record)
 }
 
-struct Package {
+struct Package<'a> {
+	/// Activated as soon as an attestation verifies, even if installing then fails.
+	ratchet: &'a Ratchet,
 	name: String,
 	version: Version,
 	repository: Option<String>,
@@ -65,7 +92,7 @@ fn download_builder(redirects: &origin::Redirects) -> reqwest::ClientBuilder {
 	.read_timeout(Duration::from_secs(30))
 }
 
-async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) -> Result<Record> {
+async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool, ratchet: &Ratchet) -> Result<Record> {
 	let redirects = origin::Redirects::default();
 	let client = remote::Client::from_builder(download_builder(&redirects), 1000.try_into()?, 100.try_into()?)?;
 	let req = VersionReq::parse(&format!("={version}"))?;
@@ -91,6 +118,7 @@ async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) 
 	}
 	ensure!(!binaries.is_empty(), "crate contains no binaries");
 	let package = Package {
+		ratchet,
 		name: package.name,
 		version,
 		repository,
@@ -213,7 +241,7 @@ fn disabled(target: &TargetDataErased, strategy: Strategy) -> bool {
 		.is_some_and(|strategies| strategies.contains(&strategy))
 }
 
-impl Package {
+impl Package<'_> {
 	async fn install(
 		&self,
 		stage: &Path,
@@ -241,6 +269,9 @@ impl Package {
 			)
 			.await?
 		};
+		if crate::ratchet::attested(&source) {
+			self.ratchet.activate()?;
+		}
 		// Only now, with every published proof checked, does crabx decompress a byte.
 		let download = stage.join("download");
 		archive::extract(staged, fetcher.pkg_fmt(), &download, archive::Limits::RELEASE)?;
@@ -754,7 +785,13 @@ mod tests {
 	fn install(fetcher: Fake) -> (tempfile::TempDir, Result<Record>) {
 		let stage = tempfile::tempdir().unwrap();
 		fs::create_dir(stage.path().join("bin")).unwrap();
+		let ratchet = crate::ratchet::Ratchet {
+			dir: stage.path().join("attested"),
+			name: "tool".into(),
+			caches: Vec::new(),
+		};
 		let package = Package {
+			ratchet: &ratchet,
 			name: "tool".into(),
 			version: Version::new(1, 0, 0),
 			repository: None,

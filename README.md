@@ -16,8 +16,8 @@ crabx moq-cli --help
 Install crabx once, from its release:
 
 ```sh
-curl -fsSL https://crabx.kixel.me/install.sh | sh
-powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
+curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
+powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
 npm install -g @kixel/crabx
 cargo install crabx
 ```
@@ -93,7 +93,20 @@ production trust root. GitHub's timestamp-only bundles use GitHub's separate CA 
 timestamp authority, verifying the certificate, signature, digest, and RFC 3161 time.
 Both roots refresh through TUF. A malformed bundle, wrong repository, or verification/API
 failure is an error. A release with no published attestation is allowed, as are author
-releases hosted outside GitHub. Binstalk's configured minisign checks remain enabled. Optional
+releases hosted outside GitHub, until crabx has verified an attestation for any of the crate's
+author releases, in any mode. From then on it refuses to cache or run an unattested author release
+of that crate, since GitHub answers an archive swapped for an unattested one as if it were never
+attested: an unpinned run runs the newest attested release it has cached instead, and its background
+update reports the refusal. A pinned run fails, as does an unpinned one with no runnable attested
+release cached, such as when the only attestation found is in 0.1's cache, whose entries can't run.
+The error names the marker file to delete if the author stopped attesting on purpose, or `--build`
+to compile it instead. Quickinstall's builds and `--build` are unaffected. On its first
+run that enforces this, crabx seeds it from every attestation already in its own and 0.1's caches,
+once per crate; an attested release a crabx without this check (0.1, or a 0.2 release before it) caches
+afterward does not count until crabx verifies one itself. `--require-attestation` refuses any
+release without a verified attestation from the first run, for CI and other strict callers; it
+excludes `--build` and `--allow-quickinstall`, and background updates and launchers keep it.
+Binstalk's configured minisign checks remain enabled. Optional
 `GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit for release
 discovery and attestations; they are sent only to GitHub's API, `api.github.com`. crabx downloads
 release archives without them, so releases from private GitHub repositories count as
