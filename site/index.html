@@ -142,9 +142,10 @@ Flags:
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>
 <span class="d">wrote /home/you/mycrate/.github/workflows/binaries.yml; commit it and push it to main</span></code></pre>
   </div>
-  <p class="fine">A crate that already publishes archives for <code>cargo-binstall</code>
-  needs no pipeline: crabx reads the same <code>[package.metadata.binstall]</code> and
-  layouts, from a public repository and crates.io only.</p>
+  <p class="fine">Archives you already publish for <code>cargo-binstall</code> run without
+  the pipeline where they cover a platform: crabx reads the same
+  <code>[package.metadata.binstall]</code> and layouts, from a public repository and
+  crates.io only, under the same trust checks.</p>
   <p class="fine">Build jobs get read-only tokens; only the publishing job, which never runs
   your crate's code, attests archives and writes releases. See
   <a href="https://github.com/kixel-ai/crabx/blob/main/pipeline/README.md">the pipeline</a>.</p>
