@@ -34,6 +34,11 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   Decided 2026-11-24 (maintainer, /quest-run): npm refuses the unscoped `crabx`, so ✅ the
   npm package is `@kixel/crabx`, installed once with `npm install -g @kixel/crabx`, and the
   docs drop `npx`/`bunx` runs (rejected: asking npm for `crabx`; another unscoped name).
+  Superseded for the scoped package on 2026-11-24 (maintainer, /quest-plan in
+  kixel-ai/token-max), so this governs over the line above: ✅ the docs
+  offer the scoped `npx @kixel/crabx install` as a one-line install, and
+  token-max's site runs `npx @kixel/crabx token-max doctor`; see
+  [`crabx install`](/quest/m1/install.md).
 - ✅ Anything binstall resolves from the author's releases, so crates that already attach
   release assets work on day one; the pipeline primarily exists to set those assets up. Rejected: opted-in repos
   only; any crates.io crate built on demand.
@@ -50,6 +55,9 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
 - ✅ An unpinned run is stale-while-revalidate: it runs the cached latest and checks
   crates.io's sparse index in the background for the next run. Once cached, a pinned version
   runs with no network. Rejected: a check every run; a 24-hour TTL.
+  Superseded 2026-11-24 (maintainer, /quest-plan in kixel-ai/token-max): the
+  background check runs at most daily, and unpinned runs skip versions under 24
+  hours old; see [the release-age quest](/quest/m1/release-age.md).
 - ✅ The name `crabx`, free on crates.io, following npx, bunx, and uvx; npm's package is
   `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.
