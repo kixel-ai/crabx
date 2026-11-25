@@ -269,7 +269,8 @@ mod tests {
 		let ratchet = ratchet(temp.path());
 		entry(&temp.path().join("v1"), "1.0.0", "malformed");
 		let error = format!("{:#}", ratchet.active().unwrap_err());
-		assert!(error.contains("v1/1.0.0/record.json"), "{error}");
+		let record = Path::new("v1").join("1.0.0").join("record.json");
+		assert!(error.contains(&*record.to_string_lossy()), "{error}");
 		assert!(!ratchet.migrated().exists());
 	}
 
