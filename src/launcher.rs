@@ -120,7 +120,7 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	install_self(&dir)?;
 	// Read after install_self, whose relink changes a Windows launcher's digest.
 	let sha256 = Launcher::load(&name)?
-		.filter(|recorded| recorded.path == path)
+		.filter(|recorded| same_file(&recorded.path, &path))
 		.map(|recorded| recorded.sha256)
 		.unwrap_or_default();
 	let mut launcher = Launcher {
@@ -140,7 +140,7 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 fn check(dir: &Path, name: &str, path: &Path) -> Result<()> {
 	let existing = Launcher::load(name)?;
 	if let Some(existing) = &existing
-		&& existing.path != path
+		&& !same_file(&existing.path, path)
 		&& existing.found()? == Found::Launcher
 	{
 		bail!(
@@ -149,13 +149,23 @@ fn check(dir: &Path, name: &str, path: &Path) -> Result<()> {
 			dir.display()
 		);
 	}
-	let recorded = existing.as_ref().filter(|existing| existing.path == path);
+	let recorded = existing.as_ref().filter(|existing| same_file(&existing.path, path));
 	ensure!(
 		found(path, recorded)? != Found::Other,
 		"{} exists and is not crabx's launcher; delete it, or set CRABX_INSTALL_DIR to install elsewhere",
 		path.display()
 	);
 	Ok(())
+}
+
+/// Whether two paths name the same directory, such as through a different case on NTFS or a symlink.
+fn same_dir(a: &Path, b: &Path) -> bool {
+	a == b || fs::canonicalize(a).is_ok_and(|a| fs::canonicalize(b).is_ok_and(|b| a == b))
+}
+
+/// Whether two paths name the same file in the same directory, even when the file is missing.
+fn same_file(a: &Path, b: &Path) -> bool {
+	a.file_name() == b.file_name() && a.parent().zip(b.parent()).is_some_and(|(a, b)| same_dir(a, b))
 }
 
 /// `CRABX_INSTALL_DIR`, else `~/.local/bin`, as install.sh and install.ps1 use.
@@ -303,7 +313,7 @@ fn install_self(dir: &Path) -> Result<()> {
 		eprintln!("crabx install: installed {}", target.display());
 	}
 	for (name, mut launcher) in Launcher::all()? {
-		if launcher.path.parent() != Some(dir) {
+		if !launcher.path.parent().is_some_and(|parent| same_dir(parent, dir)) {
 			continue;
 		}
 		match launcher.found()? {
@@ -443,5 +453,19 @@ mod tests {
 			super::sha256(&path).unwrap(),
 			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
 		);
+	}
+
+	#[cfg(unix)]
+	#[test]
+	fn same_file_sees_through_directory_aliases() {
+		let temp = tempfile::tempdir().unwrap();
+		let real = temp.path().join("bin");
+		std::fs::create_dir(&real).unwrap();
+		let alias = temp.path().join("alias");
+		std::os::unix::fs::symlink(&real, &alias).unwrap();
+		// The file itself need not exist: a deleted launcher still has its record's path.
+		assert!(super::same_file(&real.join("moq-cli"), &alias.join("moq-cli")));
+		assert!(!super::same_file(&real.join("moq-cli"), &alias.join("moq-relay")));
+		assert!(!super::same_file(&real.join("moq-cli"), &temp.path().join("moq-cli")));
 	}
 }
