@@ -18,7 +18,7 @@ Have at least these sections:
 
 # Landing
 
-A PR lands once CI's `check` job passes; queue the reviewed head with `quest merge <pr>`.
+A PR lands once CI's `check` job and its local `quest review` rounds pass; queue the reviewed head with `quest merge <pr>`.
 The admin bypass of `main`'s rulesets is for emergencies.
 
 # Imported code
