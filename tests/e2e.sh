@@ -67,7 +67,7 @@ esac
 cache=$cache/crabx/v1/$target
 
 # pinned NETWORK SPEC MODE SOURCE [OPTIONS...]: run SPEC's --version through crabx and check its
-# output, which may add a build note, and the trust source its cache entry records.
+# output, which may add a build note or omit the name, and the trust source its cache entry records.
 pinned() {
     local network=$1 spec=$2 mode=$3 source=$4
     shift 4
@@ -76,7 +76,7 @@ pinned() {
     if [ "$network" = online ] && [ -e "$entry" ]; then fail "$entry is already cached"; fi
     echo "e2e: $network crabx $* $spec"
     out=$("$network" "$crabx" "$@" "$spec" --version | tr -d '\r')
-    case $out in "$name $version" | "$name $version "*) ;; *) fail "$spec printed '$out'" ;; esac
+    case $out in "$name $version" | "$name $version "* | "$version") ;; *) fail "$spec printed '$out'" ;; esac
     grep -qF "\"source\":\"$source" "$entry/record.json" || fail "$spec recorded $(cat "$entry/record.json")"
 }
 
@@ -87,6 +87,8 @@ cases() {
     # crabx's pipeline, the signer every crabx-built crate carries.
     pinned "$1" crabx@0.1.0 author "GitHub attestations (1) sha256:"
     pinned "$1" hyperfine@2.0.0 author "author release (no published attestation)\""
+    # Ships only static musl Linux builds, which glibc Linux falls back to.
+    case $target in *-linux-gnu) pinned "$1" token-max@0.0.1 author "GitHub attestations (1) sha256:" ;; esac
     # Its author attaches no binaries; quickinstall builds it for every target crabx runs on.
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }

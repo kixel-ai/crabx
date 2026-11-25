@@ -2,7 +2,7 @@
 
 ## Goal
 
-crabx 0.1.1, with the [musl fallback](/quest/m0/musl-fallback.md), is on crates.io and npm,
+crabx 0.1.1, with the musl fallback, is on crates.io and npm,
 published by `release.yml` before 2026-11-27 00:18 UTC, so npm validates the trusted
 publishers added on 2026-11-25 and `npx @kixel/crabx token-max --version` runs token-max's
 musl build on glibc Linux.
@@ -27,7 +27,3 @@ deadline passes first, follow [first publish](/quest/m0/first-publish.md)'s `Wai
 ## Scheduled
 
 - 2026-11-25 - the deadline is 2026-11-27 00:18 UTC
-
-## Required
-
-- [Musl fallback](/quest/m0/musl-fallback.md) - the change this release ships

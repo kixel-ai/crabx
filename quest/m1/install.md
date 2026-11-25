@@ -89,4 +89,3 @@ Recommendations:
 
 - [0.1.1](/quest/m0/release-0.1.1.md) - cut before this lands, so 0.1.1 ships only the musl fallback
 
-- [Musl fallback](/quest/m0/musl-fallback.md) - token-max, this command's first consumer, ships only musl Linux builds

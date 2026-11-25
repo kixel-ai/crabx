@@ -30,7 +30,6 @@ max.kixel.me, waits on this release.
 
 - [0.1.1](/quest/m0/release-0.1.1.md) - the first publish through `release.yml`, which validates npm's trusted publishers
 
-- [Musl fallback](/quest/m0/musl-fallback.md) - runs crates with only musl Linux builds, such as token-max
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
 

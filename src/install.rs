@@ -143,40 +143,46 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		)),
 		_ => None,
 	};
-	let mut candidates = Vec::new();
-	let targets = host_targets()
+	let tiers = host_targets()
 		.into_iter()
-		.map(|target| -> Result<Arc<TargetDataErased>> {
-			let target_related_info = TargetTriple::from_str(&target)?;
-			let meta = package.meta.merge_overrides(
-				package
-					.meta
-					.overrides
-					.get_matching(&target, &target_related_info.cfgs()),
-			);
-			Ok(Arc::new(TargetData {
-				target,
-				meta,
-				target_related_info,
-			}))
+		.map(|tier| {
+			tier.into_iter()
+				.map(|target| -> Result<Arc<TargetDataErased>> {
+					let target_related_info = TargetTriple::from_str(&target)?;
+					let meta = package.meta.merge_overrides(
+						package
+							.meta
+							.overrides
+							.get_matching(&target, &target_related_info.cfgs()),
+					);
+					Ok(Arc::new(TargetData {
+						target,
+						meta,
+						target_related_info,
+					}))
+				})
+				.collect::<Result<Vec<_>>>()
 		})
 		.collect::<Result<Vec<_>>>()?;
-	for (name, data) in std::iter::once((package.name.clone(), data.clone())).chain(alternate) {
-		for target in &targets {
-			if !disabled(target, Strategy::CrateMetaData) {
-				candidates.push((
-					name.clone(),
-					GhCrateMeta::new(
-						client.clone(),
-						gh.clone(),
-						data.clone(),
-						target.clone(),
-						SignaturePolicy::IfPresent,
-					),
-				));
-			}
+	let names: Vec<_> = std::iter::once((package.name.clone(), data.clone()))
+		.chain(alternate)
+		.collect();
+	let mut candidates = Vec::new();
+	for (name, data, target) in ordered(&names, &tiers) {
+		if !disabled(target, Strategy::CrateMetaData) {
+			candidates.push((
+				name.clone(),
+				GhCrateMeta::new(
+					client.clone(),
+					gh.clone(),
+					data.clone(),
+					target.clone(),
+					SignaturePolicy::IfPresent,
+				),
+			));
 		}
 	}
+	let targets: Vec<_> = tiers.into_iter().flatten().collect();
 	if quickinstall {
 		for target in &targets {
 			if !disabled(target, Strategy::QuickInstall) {
@@ -415,20 +421,61 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 	})
 }
 
-fn host_targets() -> Vec<String> {
-	let mut targets = vec![binstalk::TARGET.to_owned()];
+/// Pairs every name with every target, trying a tier's targets under each name before the next tier's.
+fn ordered<'a, N, D, T>(names: &'a [(N, D)], tiers: &'a [Vec<T>]) -> impl Iterator<Item = (&'a N, &'a D, &'a T)> {
+	tiers.iter().flat_map(move |tier| {
+		names
+			.iter()
+			.flat_map(move |(name, data)| tier.iter().map(move |target| (name, data, target)))
+	})
+}
+
+/// The targets this host runs, in tiers from most to least preferred.
+fn host_targets() -> Vec<Vec<String>> {
+	let mut tiers = vec![vec![binstalk::TARGET.to_owned()]];
 	if cfg!(target_os = "macos") {
-		targets.extend([
+		// A crate-named universal archive still beats a binary-named native one.
+		tiers[0].extend([
 			"universal-apple-darwin".to_owned(),
 			"universal2-apple-darwin".to_owned(),
 		]);
 	}
-	targets
+	if cfg!(all(target_os = "linux", target_env = "gnu")) {
+		// A static musl build runs on any glibc host, so it serves crates that ship no gnu one.
+		tiers.push(vec![binstalk::TARGET.replacen("-gnu", "-musl", 1)]);
+	}
+	tiers
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn every_name_tries_a_tier_before_the_next() {
+		let names = [("crate", ()), ("bin", ())];
+		let tiers = [vec!["gnu"], vec!["musl"]];
+		let order: Vec<_> = ordered(&names, &tiers).map(|(n, _, t)| (*n, *t)).collect();
+		assert_eq!(
+			order,
+			[("crate", "gnu"), ("bin", "gnu"), ("crate", "musl"), ("bin", "musl")]
+		);
+		let tiers = [vec!["native", "universal"]];
+		let order: Vec<_> = ordered(&names, &tiers).map(|(n, _, t)| (*n, *t)).collect();
+		assert_eq!(
+			order,
+			[
+				("crate", "native"),
+				("crate", "universal"),
+				("bin", "native"),
+				("bin", "universal")
+			]
+		);
+		if cfg!(all(target_os = "linux", target_env = "gnu")) {
+			let musl = binstalk::TARGET.replace("-gnu", "-musl");
+			assert_eq!(host_targets(), [vec![binstalk::TARGET.to_owned()], vec![musl]]);
+		}
+	}
 
 	#[test]
 	fn stalled_downloads_have_read_and_total_deadlines() {
