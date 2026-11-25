@@ -139,7 +139,10 @@ pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: Sy
 	})();
 	Ok(match chosen {
 		Ok((record, newest)) => Unpinned {
-			refresh: index.due(now) || newest.as_ref() != Some(&record.version),
+			// A refused release is downloaded again in the background, in case it has been attested since.
+			refresh: index.due(now)
+				|| newest.as_ref() != Some(&record.version)
+				|| !cache.ratchet.eligible(&record, args.require_attestation)?,
 			record: Ok(record),
 		},
 		// A stale index may be why nothing runs, so a due check still starts for the next run.
@@ -177,8 +180,11 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 		};
 		pending = Some(version.clone());
 		let record = install::resolve(cache, name, version, args).await?;
-		// A release cached before the ratchet refused it fails here, so the next run reports why it runs an older one.
-		cache.ratchet.admit(&record, args.require_attestation)?;
+		// A release cached before the policy refused it is downloaded again, in case its author attested
+		// it since; still unattested, it fails here, so the next run reports why it runs an older one.
+		if cache.ratchet.admit(&record, args.require_attestation).is_err() {
+			install::reinstall(cache, name, version, args).await?;
+		}
 		Ok(())
 	}
 	.await;
@@ -478,7 +484,7 @@ pub mod tests {
 			(record.version.to_string(), run.refresh, admitted.is_ok())
 		};
 		assert_eq!(run(&[]), ("2.0.0".into(), false, true));
-		assert_eq!(run(&["--require-attestation"]), ("2.0.0".into(), false, false));
+		assert_eq!(run(&["--require-attestation"]), ("2.0.0".into(), true, false));
 		// Cached after the one-time scan, as by a crabx without the ratchet, so only the strict
 		// policy prefers it, and its refresh retries the newest.
 		entry("1.0.0", "GitHub attestations (1) sha256:00");
@@ -488,7 +494,7 @@ pub mod tests {
 		assert_eq!(run(&[]), ("1.0.0".into(), true, true));
 		// With no attested release left, the newest is chosen and refused.
 		fs::remove_dir_all(cache.version(&Version::new(1, 0, 0))).unwrap();
-		assert_eq!(run(&[]), ("2.0.0".into(), false, false));
+		assert_eq!(run(&[]), ("2.0.0".into(), true, false));
 	}
 
 	#[test]

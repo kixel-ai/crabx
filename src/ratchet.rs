@@ -46,7 +46,7 @@ impl Ratchet {
 
 	/// Record that an author release of the crate was verified.
 	pub fn activate(&self) -> Result<()> {
-		if exists(&self.marker())? {
+		if exists(&self.marker())? && exists(&self.migrated())? {
 			return Ok(());
 		}
 		let lock = self.lock()?;

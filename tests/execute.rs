@@ -306,7 +306,7 @@ fn a_verified_attestation_in_any_cache_refuses_later_unattested_releases() {
 	);
 	assert!(stderr.contains(&marker.display().to_string()), "{stderr}");
 	assert!(marker.is_file());
-	// An unpinned run runs the older attested release, and its refresh records why it skipped the newer one.
+	// An unpinned run runs the older attested release, and its refresh checks the newer one for an attestation again.
 	fs::create_dir_all(root.join("1.0.0/bin")).unwrap();
 	fs::copy(root.join("1.2.3/bin/tool"), root.join("1.0.0/bin/tool")).unwrap();
 	fs::write(root.join("1.0.0/record.json"), attested).unwrap();
@@ -324,13 +324,9 @@ fn a_verified_attestation_in_any_cache_refuses_later_unattested_releases() {
 		String::from_utf8_lossy(&output.stderr)
 	);
 	let failure: serde_json::Value = serde_json::from_slice(&fs::read(root.join("failure.json")).unwrap()).unwrap();
-	assert!(
-		failure["message"]
-			.as_str()
-			.unwrap()
-			.contains("fixture@1.2.3 has no verified"),
-		"{failure}"
-	);
+	// It tried to download the refused release again, failing only for want of the network.
+	assert_eq!(failure["version"], "1.2.3", "{failure}");
+	assert!(root.join("1.2.3/record.json").is_file());
 	// The pin still refuses, until the user deletes the marker.
 	assert_eq!(offline(crabx(temp.path()).arg("fixture@1.2.3")).status.code(), Some(1));
 	fs::remove_file(&marker).unwrap();

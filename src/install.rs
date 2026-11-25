@@ -28,6 +28,18 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 	if let Some(record) = cache.load(version)? {
 		return Ok(record);
 	}
+	install(cache, name, version, args).await
+}
+
+/// Download `name@version` again over its cached entry, which the attestation policy now refuses,
+/// in case its author attested it since it was cached.
+pub async fn reinstall(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
+	let _lock = cache.lock()?;
+	install(cache, name, version, args).await
+}
+
+/// Install `name@version`, replacing any cached entry, while holding the installation lock.
+async fn install(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
 	let stage = cache.stage()?;
 	fs::create_dir(stage.path().join("bin"))?;
 	let record = if args.build {
@@ -42,7 +54,16 @@ pub async fn resolve(cache: &Cache, name: &str, version: &Version, args: &Args) 
 	// Held across publishing, so a concurrent activation refuses this release instead of caching it.
 	let _admitted = cache.ratchet.admit(&record, args.require_attestation)?;
 	cache::atomic(&stage.path().join("record.json"), &serde_json::to_vec(&record)?)?;
-	fs::rename(stage.path(), cache.version(&record.version))?;
+	let entry = cache.version(&record.version);
+	if entry.try_exists()? {
+		// Moved into a staging directory, which the next install reclaims, as a running binary may still use it.
+		let replaced = tempfile::Builder::new()
+			.prefix("install-")
+			.tempdir_in(&cache.root)?
+			.keep();
+		fs::rename(&entry, replaced.join("replaced"))?;
+	}
+	fs::rename(stage.path(), entry)?;
 	// The rename moved the directory, so there is nothing left to clean up.
 	let _ = stage.keep();
 	Ok(record)
