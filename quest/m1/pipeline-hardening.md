@@ -2,7 +2,7 @@
 
 ## Goal
 
-The reusable pipeline narrows build uploads to each target's exact archive, scrubs Actions runtime credentials from `cargo`, verifies unfiltered artifact uniqueness, pre-extraction ZIP digests, strict single-file layouts, and producing job success (within existing `v1` caller permissions) in `publish`, verifies SHA-256 hashes for every PyPI package installed in Linux builds, exercises the real artifact handoff in read-only PR CI, and bounds HTTP and job runtimes.
+The reusable pipeline narrows build uploads to each target's exact archive, scrubs Actions runtime credentials from `cargo`, verifies unfiltered artifact uniqueness, pre-extraction ZIP digests, strict single-file layouts, and producing job success (within existing `v1` caller permissions) in `publish`, requires hash-pinned binary wheels for every PyPI package installed on both Linux architectures, exercises the real artifact handoff in read-only PR CI, and bounds HTTP and job runtimes.
 
 ## Plan
 
@@ -30,9 +30,10 @@ Changes to make:
   - Stage only the verified `.tgz` files into a clean directory passed to `actions/attest` (`subject-path`) and `publish`.
 - Exercise the real artifact handoff in read-only PR CI:
   - Extend `.github/workflows/crabx-test.yml`'s `pull_request` path with a read-only downstream job (`permissions: contents: read`) that runs the exact same unfiltered artifact inventory check, job-status check, per-target `skip-decompress: true` download, pre-extraction ZIP digest check, and archive validation on the fixture's uploaded artifacts (without attesting or publishing), so permission or upload/download/digest mismatches fail PR checks instead of manual releases.
-- Lock Linux build-tool PyPI dependencies:
-  - Pin the full transitive closure of `cargo-zigbuild` and `ziglang` with `--hash=sha256:...` in `pipeline/requirements.txt` and pass `--require-hashes` to `pip install` in `.github/workflows/crabx-build.yml`. Keep Dependabot's pip updates working or document how hashes refresh.
+- Lock Linux build-tool PyPI dependencies with binary wheels only on both Linux architectures (`x86_64` and `aarch64`):
+  - Pin the full transitive closure of `cargo-zigbuild` and `ziglang` with `--hash=sha256:...` for both Linux architectures' wheels in `pipeline/requirements.txt` and pass `--require-hashes --only-binary=:all:` to `pip install` in `.github/workflows/crabx-build.yml`, so pip can never fall back to an sdist and install unhashed build dependencies inside an isolated build environment. Keep Dependabot's pip updates working or document how hashes refresh.
 - Add `timeout=60` to `urllib.request.urlopen` calls in `pipeline/pipeline.py` (matching `release.py`), and set `timeout-minutes` on the jobs in `.github/workflows/crabx.yml` and `.github/workflows/crabx-build.yml`.
+- Update [pipeline/README.md](/pipeline/README.md)'s release checklist to name `.github/workflows/release.yml` alongside `src/binaries.yml` and `pipeline/README.md` so all three pins live in one checklist.
 - Cover the per-target artifact validation (single-missing-target backfill, missing archive, extra `.tgz`, wrong filename, symlink, failed/missing producing job, partial-rerun reuse of a prior attempt's successful build job, duplicate artifact in unfiltered inventory, pre-extraction ZIP digest mismatch) in `pipeline/test_pipeline.py`.
 
 ## Required
