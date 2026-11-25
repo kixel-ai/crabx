@@ -50,17 +50,19 @@ pub struct Toolchain {
 impl Toolchain {
 	pub fn new(caller: &Caller) -> Result<Self> {
 		let nonempty = |value: &Option<OsString>| value.clone().filter(|value| !value.is_empty());
-		// The OS resolves `..` in these after any symlink before it, so they are joined, not normalized.
 		let path = caller
 			.path
 			.as_ref()
-			.map(|path| std::env::join_paths(std::env::split_paths(path).map(|entry| caller.dir.join(entry))))
+			.map(|path| std::env::join_paths(std::env::split_paths(path).map(|entry| resolve(&caller.dir, &entry))))
 			.transpose()
 			.context("PATH holds an entry that cannot be rewritten")?;
 		let cargo = nonempty(&caller.cargo).map(|cargo| {
 			let cargo = PathBuf::from(cargo);
-			if cargo.components().count() > 1 {
-				caller.dir.join(cargo)
+			// Its own name stays, since rustup's proxies are links that tell tools apart by name.
+			if let (true, Some(parent), Some(name)) =
+				(cargo.components().count() > 1, cargo.parent(), cargo.file_name())
+			{
+				resolve(&caller.dir, parent).join(name)
 			} else {
 				cargo
 			}
@@ -82,7 +84,7 @@ impl Toolchain {
 				false,
 			),
 		};
-		let target_dir = nonempty(&caller.target_dir).map(|dir| caller.dir.join(dir));
+		let target_dir = nonempty(&caller.target_dir).map(|dir| resolve(&caller.dir, Path::new(&dir)));
 		if let Some(checkout) = checkout(&caller.dir)? {
 			// A default CARGO_HOME comes from HOME, which no checkout controls, even one at HOME itself.
 			ensure!(
@@ -102,9 +104,10 @@ impl Toolchain {
 		}
 		// Configuration in a directory that also holds the caller's may come with the checkout, such as
 		// from an outer one, while the rest of the home's ancestors are the user's. Compared by what
-		// they resolve to, since the same directory can have several names, such as /var on macOS.
+		// they are, since symlinks, such as /var on macOS, and bind mounts give a directory many names.
 		let here = fs::canonicalize(&caller.dir).context("resolve the current directory")?;
-		let shared = |dir: &Path| fs::canonicalize(dir).is_ok_and(|dir| here.starts_with(dir));
+		let mine: Vec<_> = here.ancestors().filter_map(identity).collect();
+		let shared = |dir: &Path| identity(dir).is_some_and(|dir| mine.contains(&dir));
 		for dir in home.ancestors().filter(|dir| shared(dir)) {
 			if let Some(config) = untrusted(dir, &home, &[".cargo/config.toml", ".cargo/config"])? {
 				bail!(
@@ -182,6 +185,28 @@ impl Toolchain {
 				)
 			})
 	}
+}
+
+/// A relative `path` from `dir`, resolved now as the OS would, so it still leads to the same place
+/// from another directory, or once `dir` is gone.
+fn resolve(dir: &Path, path: &Path) -> PathBuf {
+	let joined = dir.join(path);
+	match path.is_relative() {
+		true => fs::canonicalize(&joined).unwrap_or(joined),
+		false => joined,
+	}
+}
+
+/// What a directory is, whatever its name.
+#[cfg(unix)]
+fn identity(dir: &Path) -> Option<(u64, u64)> {
+	use std::os::unix::fs::MetadataExt;
+	fs::metadata(dir).ok().map(|metadata| (metadata.dev(), metadata.ino()))
+}
+
+#[cfg(not(unix))]
+fn identity(dir: &Path) -> Option<PathBuf> {
+	fs::canonicalize(dir).ok()
 }
 
 /// The filesystem root holding `dir`, where crabx runs what must not hold the caller's directory.
@@ -301,24 +326,22 @@ mod tests {
 		caller.target_dir = Some("../target".into());
 		let toolchain = Toolchain::new(&caller).unwrap();
 		let command = toolchain.command().unwrap();
-		assert_eq!(command.get_program(), work.join("checkout/../toolchain/bin/cargo"));
+		let bin = fs::canonicalize(work.join("toolchain/bin")).unwrap();
+		assert_eq!(command.get_program(), bin.join("cargo"));
 		assert_eq!(command.get_current_dir(), Some(root(temp.path())));
-		// Cargo resolves `..` in CARGO_HOME by name; the OS resolves the rest.
+		// Cargo resolves `..` in CARGO_HOME by name; the OS resolves the rest, once it exists.
 		assert_eq!(toolchain.home, work.join("trusted"));
 		assert_eq!(toolchain.target_dir.unwrap(), work.join("checkout/../target"));
 		assert_eq!(
 			toolchain.path.unwrap(),
-			std::env::join_paths([work.join("checkout/../toolchain/bin"), elsewhere]).unwrap()
+			std::env::join_paths([bin.clone(), elsewhere]).unwrap()
 		);
 		// A relative CARGO is a path from the caller's directory, and an empty CARGO_HOME is unset.
 		caller.dir = work.join("toolchain");
 		caller.cargo = Some("./bin/cargo".into());
 		caller.cargo_home = Some("".into());
 		let toolchain = Toolchain::new(&caller).unwrap();
-		assert_eq!(
-			toolchain.command().unwrap().get_program(),
-			work.join("toolchain/./bin/cargo")
-		);
+		assert_eq!(toolchain.command().unwrap().get_program(), bin.join("cargo"));
 		assert_eq!(toolchain.home, temp.path().join(".cargo"));
 		// A missing Cargo matters only to what runs it.
 		caller.cargo = Some("missing".into());
