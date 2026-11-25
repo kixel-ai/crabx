@@ -2,8 +2,11 @@
 
 use std::{
 	fs,
-	io::{BufRead, BufReader},
-	os::unix::{ffi::OsStringExt, process::ExitStatusExt},
+	io::{BufRead, BufReader, Read},
+	os::{
+		fd::AsRawFd,
+		unix::{ffi::OsStringExt, process::CommandExt, process::ExitStatusExt},
+	},
 	path::Path,
 	process::{Command, Stdio},
 };
@@ -22,7 +25,10 @@ fn crabx(temp: &Path) -> Command {
 	command
 		.env("HOME", temp)
 		.env("XDG_CACHE_HOME", cache(temp))
-		.env_remove("CRABX_MINIMUM_RELEASE_AGE");
+		.env_remove("CRABX_MINIMUM_RELEASE_AGE")
+		// Cargo sets CARGO for tests; the developer's CARGO_HOME would escape HOME.
+		.env_remove("CARGO")
+		.env_remove("CARGO_HOME");
 	command
 }
 
@@ -41,14 +47,24 @@ fn setup(temp: &Path, name: &str) -> std::path::PathBuf {
                 assert!(args.iter().any(|arg| arg == "--locked"));
                 let target = args.iter().position(|arg| arg == "--target").unwrap();
                 assert_eq!(args[target + 1], std::env::var_os("CRABX_TEST_TARGET").unwrap());
-                // crabx always chooses the version, even for an unpinned run.
+                // crabx always chooses the exact version, even for an unpinned run.
                 let version = args.iter().position(|arg| arg == "--version").unwrap();
-                assert_eq!(args[version + 1], "=1.2.3");
+                let version = args[version + 1].to_str().unwrap().strip_prefix('=').unwrap();
                 let root = args.iter().position(|arg| arg == "--root").unwrap();
                 let root = std::path::Path::new(&args[root + 1]);
                 std::fs::copy(std::env::current_exe().unwrap(), root.join("bin/tool")).unwrap();
-                std::fs::write(root.join(".crates2.json"),
-                    r#"{"installs":{"fixture 1.2.3 (registry+https://github.com/rust-lang/crates.io-index)":{}}}"#).unwrap();
+                std::fs::write(root.join(".crates2.json"), format!(
+                    r#"{{"installs":{{"fixture {version} (registry+https://github.com/rust-lang/crates.io-index)":{{}}}}}}"#)).unwrap();
+                // Where Cargo ran, for the isolation tests: its directory, its parent's, and its home.
+                if let Some(log) = std::env::var_os("CRABX_TEST_LOG") {
+                    assert!(std::process::Command::new("rustc").status().unwrap().success());
+                    let parent = std::fs::read_link(format!("/proc/{}/cwd", std::os::unix::process::parent_id()))
+                        .unwrap_or_default();
+                    let line = format!("{version} {} {} {}\n", std::env::current_dir().unwrap().display(),
+                        parent.display(), std::env::var("CARGO_HOME").unwrap());
+                    std::fs::OpenOptions::new().create(true).append(true).open(log).unwrap()
+                        .write_all(line.as_bytes()).unwrap();
+                }
                 return;
             }
             if args.first().is_some_and(|arg| arg == "signal") {
@@ -95,6 +111,23 @@ fn setup(temp: &Path, name: &str) -> std::path::PathBuf {
 fn build_is_explicit_host_targeted_and_separate_from_author_cache() {
 	let temp = tempfile::tempdir().unwrap();
 	setup(temp.path(), "fixture");
+	// A build from before Cargo left the caller's directory, which must never run again.
+	let legacy = cache(temp.path())
+		.join("crabx/v1")
+		.join(binstalk::TARGET)
+		.join("build/fixture/1.2.3");
+	fs::create_dir_all(legacy.join("bin")).unwrap();
+	fs::write(legacy.join("bin/tool"), "#!/bin/sh\nexit 38\n").unwrap();
+	fs::set_permissions(
+		legacy.join("bin/tool"),
+		std::os::unix::fs::PermissionsExt::from_mode(0o755),
+	)
+	.unwrap();
+	fs::write(
+		legacy.join("record.json"),
+		r#"{"version":"1.2.3","bins":["tool"],"source":"fixture"}"#,
+	)
+	.unwrap();
 	let output = crabx(temp.path())
 		.args(["--build", "FiXtUrE@1.2.3", "built argument"])
 		.env("CARGO", temp.path().join("helper"))
@@ -110,7 +143,7 @@ fn build_is_explicit_host_targeted_and_separate_from_author_cache() {
 		String::from_utf8_lossy(&output.stderr)
 	);
 	let built = cache(temp.path())
-		.join("crabx/v1")
+		.join("crabx/v2")
 		.join(binstalk::TARGET)
 		.join("build/fixture/1.2.3");
 	assert!(built.join(".crates2.json").is_file());
@@ -220,7 +253,7 @@ fn cold_unpinned_build_installs_the_chosen_release_before_binary_selection() {
 	let temp = tempfile::tempdir().unwrap();
 	setup(temp.path(), "fixture");
 	let root = cache(temp.path())
-		.join("crabx/v1")
+		.join("crabx/v2")
 		.join(binstalk::TARGET)
 		.join("build/fixture");
 	// Cargo would pick 1.3.0, which is under a day old; the helper requires `--version =1.2.3`.
@@ -361,4 +394,198 @@ fn unpinned_runs_apply_their_own_delay_to_the_cached_index() {
 	assert_eq!(output.status.code(), Some(1));
 	assert!(String::from_utf8_lossy(&output.stderr).contains("no publish time for version 1.3.0"));
 	assert_eq!(run(&["fixture"], Some("0s")).status.code(), Some(38));
+}
+
+/// An untrusted checkout holding the caller's directory, cache, and temporary directory, and a
+/// toolchain and CARGO_HOME beside it that the caller names relative to its directory.
+struct Checkout {
+	temp: tempfile::TempDir,
+	/// The build cache for the fixture crate.
+	root: std::path::PathBuf,
+	log: std::path::PathBuf,
+}
+
+impl Checkout {
+	fn new() -> Self {
+		let temp = tempfile::tempdir().unwrap();
+		setup(temp.path(), "fixture");
+		let checkout = temp.path().join("checkout");
+		for dir in [".git", ".cargo", "tools", "cache", "tmp"] {
+			fs::create_dir_all(checkout.join(dir)).unwrap();
+		}
+		fs::write(checkout.join(".cargo/config.toml"), "untrusted = [").unwrap();
+		let bin = temp.path().join("toolchain/bin");
+		fs::create_dir_all(&bin).unwrap();
+		fs::copy(temp.path().join("helper"), bin.join("cargo")).unwrap();
+		fs::write(bin.join("rustc"), "#!/bin/sh\n").unwrap();
+		fs::set_permissions(bin.join("rustc"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+		fs::create_dir(temp.path().join("trusted-home")).unwrap();
+		// macOS has no XDG_CACHE_HOME, so its cache stays in HOME.
+		let caches = if cfg!(target_os = "macos") {
+			cache(temp.path())
+		} else {
+			checkout.join("cache")
+		};
+		let root = caches.join("crabx/v2").join(binstalk::TARGET).join("build/fixture");
+		let log = temp.path().join("cargo.log");
+		Self { temp, root, log }
+	}
+
+	/// crabx run from `checkout/tools`, where nothing but PATH finds Cargo.
+	fn crabx(&self) -> Command {
+		let checkout = self.temp.path().join("checkout");
+		let mut command = crabx(self.temp.path());
+		command
+			.current_dir(checkout.join("tools"))
+			.env("XDG_CACHE_HOME", checkout.join("cache"))
+			.env("TMPDIR", checkout.join("tmp"))
+			.env("CARGO_HOME", "../../trusted-home")
+			.env("PATH", "../../toolchain/bin")
+			.env("CRABX_TEST_TARGET", binstalk::TARGET)
+			.env("CRABX_TEST_LOG", &self.log)
+			.env("HTTPS_PROXY", "http://127.0.0.1:1");
+		command
+	}
+
+	/// Each Cargo run's version, directory, parent's directory (Linux only), and CARGO_HOME.
+	fn runs(&self) -> Vec<Vec<String>> {
+		fs::read_to_string(&self.log)
+			.unwrap_or_default()
+			.lines()
+			.map(|line| line.split(' ').map(str::to_owned).collect())
+			.collect()
+	}
+
+	/// Assert Cargo ran from the root with the caller's home, started by a process in `parent`.
+	fn assert_isolated(&self, run: &[String], version: &str, parent: &Path) {
+		let parent = if cfg!(target_os = "linux") {
+			parent
+		} else {
+			Path::new("")
+		};
+		let home = fs::canonicalize(self.temp.path()).unwrap().join("trusted-home");
+		assert_eq!(
+			run,
+			[version, "/", &parent.display().to_string(), &home.display().to_string()]
+		);
+	}
+}
+
+/// Run `command` with the write end of a pipe as its fd 3, which a detached refresh and its Cargo
+/// inherit, and return its output once every process holding that end exits.
+fn output_after_refresh(command: &mut Command) -> std::process::Output {
+	let (mut reader, writer) = std::io::pipe().unwrap();
+	let fd = writer.as_raw_fd();
+	// SAFETY: dup2 and fcntl are async-signal-safe.
+	unsafe {
+		command.pre_exec(move || {
+			// dup2 onto itself would leave close-on-exec set.
+			let result = if fd == 3 {
+				libc::fcntl(3, libc::F_SETFD, 0)
+			} else {
+				libc::dup2(fd, 3)
+			};
+			if result < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		});
+	}
+	let output = command.output().unwrap();
+	drop(writer);
+	reader.read_to_end(&mut Vec::new()).unwrap();
+	output
+}
+
+#[test]
+fn builds_run_cargo_outside_the_checkout_with_the_callers_toolchain() {
+	let checkout = Checkout::new();
+	let output = checkout.crabx().args(["--build", "fixture@1.2.3"]).output().unwrap();
+	assert_eq!(
+		output.status.code(),
+		Some(37),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(checkout.root.join("1.2.3/record.json").is_file());
+	let runs = checkout.runs();
+	assert_eq!(runs.len(), 1);
+	// The foreground crabx itself stays where the caller ran it.
+	let tools = fs::canonicalize(checkout.temp.path().join("checkout/tools")).unwrap();
+	checkout.assert_isolated(&runs[0], "1.2.3", &tools);
+	// 1.3.0 qualifies but is not installed: the run takes 1.2.3 and a detached refresh builds 1.3.0.
+	index(&checkout.root, &[("1.3.0", Some(48)), ("1.2.3", Some(72))]);
+	let output = output_after_refresh(checkout.crabx().args(["--build", "fixture"]));
+	assert_eq!(
+		output.status.code(),
+		Some(37),
+		"{}",
+		String::from_utf8_lossy(&output.stderr)
+	);
+	assert!(!String::from_utf8_lossy(&output.stderr).contains("background update"));
+	assert!(checkout.root.join("1.3.0/record.json").is_file());
+	let runs = checkout.runs();
+	assert_eq!(runs.len(), 2);
+	checkout.assert_isolated(&runs[1], "1.3.0", Path::new("/"));
+}
+
+#[test]
+fn builds_reject_a_cargo_home_the_checkout_controls_or_configures() {
+	let checkout = Checkout::new();
+	let work = checkout.temp.path();
+	fs::create_dir(work.join(".cargo")).unwrap();
+	fs::write(work.join(".cargo/config.toml"), "untrusted = [").unwrap();
+	let homes = [
+		(work.join("checkout/.cargo").into_os_string(), "is inside the checkout"),
+		("../.cargo".into(), "is inside the checkout"),
+		(work.join("trusted-home").into_os_string(), "cargo install would read"),
+	];
+	for (home, error) in homes {
+		let output = checkout
+			.crabx()
+			.args(["--build", "fixture@1.2.3"])
+			.env("CARGO_HOME", &home)
+			.output()
+			.unwrap();
+		assert_eq!(output.status.code(), Some(1));
+		assert!(String::from_utf8_lossy(&output.stderr).contains(error), "{home:?}");
+	}
+	fs::remove_file(work.join(".cargo/config.toml")).unwrap();
+	let output = checkout.crabx().args(["--build", "fixture@1.2.3"]).output().unwrap();
+	assert_eq!(output.status.code(), Some(37));
+	assert!(checkout.root.join("1.2.3/record.json").is_file());
+	// An installed release still runs, but the refresh that would build with this home never starts.
+	index(&checkout.root, &[("1.3.0", Some(48)), ("1.2.3", Some(72))]);
+	let output = output_after_refresh(
+		checkout
+			.crabx()
+			.args(["--build", "fixture"])
+			.env("CARGO_HOME", "../.cargo"),
+	);
+	assert_eq!(output.status.code(), Some(37));
+	let stderr = String::from_utf8_lossy(&output.stderr);
+	assert!(
+		stderr.contains("could not start background update: CARGO_HOME"),
+		"{stderr}"
+	);
+	assert!(!checkout.root.join("1.3.0").exists());
+	assert_eq!(checkout.runs().len(), 1);
+}
+
+#[test]
+fn prebuilt_refresh_needs_no_cargo() {
+	let temp = tempfile::tempdir().unwrap();
+	let root = setup(temp.path(), "fixture");
+	index(&root, &[("1.3.0", Some(48)), ("1.2.3", Some(72))]);
+	let output = output_after_refresh(
+		crabx(temp.path())
+			.arg("fixture")
+			.env("PATH", "")
+			.env("HTTPS_PROXY", "http://127.0.0.1:1"),
+	);
+	assert_eq!(output.status.code(), Some(37));
+	assert!(!String::from_utf8_lossy(&output.stderr).contains("background update"));
+	// The refresh ran, and failed only for want of the network.
+	let failure: serde_json::Value = serde_json::from_slice(&fs::read(root.join("failure.json")).unwrap()).unwrap();
+	assert_eq!(failure["version"], "1.3.0", "{failure}");
 }

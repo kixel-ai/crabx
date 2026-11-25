@@ -1,5 +1,6 @@
 use crate::{
 	cache::{self, Cache, Record},
+	cargo,
 	cli::{Args, Spec},
 	index::{Index, MinimumAge},
 	install,
@@ -226,7 +227,10 @@ impl Failure {
 }
 
 pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
+	let caller = cargo::Caller::current()?;
 	let mut command = Command::new(std::env::current_exe()?);
+	// The updater outlives this invocation, so it must not keep the caller's directory in use.
+	command.current_dir(cargo::root(&caller.dir));
 	// The effective delay, whether it came from the flag, the environment or the default.
 	command
 		.arg("--refresh")
@@ -234,6 +238,8 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 		.arg(age.to_string());
 	if args.build {
 		command.arg("--build");
+		// Resolved here, since the updater runs from another directory.
+		cargo::Toolchain::new(&caller)?.env(&mut command);
 	}
 	if args.allow_quickinstall {
 		command.arg("--allow-quickinstall");

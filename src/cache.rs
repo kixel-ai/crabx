@@ -57,10 +57,13 @@ impl Record {
 impl Cache {
 	pub fn new(spec: &Spec, mode: &str) -> Result<Self> {
 		let base = directories::BaseDirs::new().context("cannot find the user's cache directory")?;
+		// Builds moved to v2 when Cargo stopped running in the caller's directory, so a v1 build, which
+		// may have run a checkout's toolchain or configuration, never runs again.
+		let layout = if mode == "build" { "v2" } else { "v1" };
 		let root = base
 			.cache_dir()
 			.join("crabx")
-			.join("v1")
+			.join(layout)
 			.join(binstalk::TARGET)
 			.join(mode)
 			.join(spec.name.to_ascii_lowercase());

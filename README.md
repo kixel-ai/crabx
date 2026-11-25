@@ -45,6 +45,12 @@ retain their spelling.
 crabx uses binstalk's release discovery, archive layouts, and signature verification.
 It never installs into `~/.cargo/bin`. Missing prebuilt assets are an error. Pass
 `--build` explicitly to run `cargo install --locked` into crabx's cache instead.
+Cargo then runs from the filesystem root, not the current directory, which may be an
+untrusted checkout, with `CARGO`, `CARGO_HOME`, and `PATH` resolved against the current
+directory first. Since Cargo reads `.cargo/config.toml` and `.cargo/config` in
+`CARGO_HOME`'s parent directories, a `CARGO_HOME` set inside the current git checkout, Cargo
+configuration in a parent it shares with the current directory, or Cargo or rustup
+configuration (`rust-toolchain.toml`) at the root is an error.
 `--allow-quickinstall` permits cargo-quickinstall's third-party builds after the
 author's releases; those have a separate cache from the default trust policy.
 Quickinstall downloads require its minisign signature; a missing signature is an error.
@@ -72,7 +78,8 @@ stays with the cached entry; a pinned, cached invocation makes no network reques
 requires neither Cargo nor GitHub's CLI.
 
 Caches live in the operating system's user cache directory, under
-`crabx/v1/<host>/<trust-policy>/<crate>/<version>`. Entries are staged, verified, and
+`crabx/v1/<host>/<trust-policy>/<crate>/<version>`, or `crabx/v2/<host>/build/...` for
+`--build`, which ignores builds from before Cargo left the current directory. Entries are staged, verified, and
 published atomically under a per-crate lock. An incomplete or corrupt entry fails
 loudly. Build and quickinstall entries cannot satisfy the default author's-release
 policy.
@@ -97,7 +104,8 @@ does. A detached refresh then checks the index for new releases at most once a d
 crate and trust policy, and installs the newest qualifying release for the next
 invocation, so a new release usually first runs 24 to 48 hours after it is published.
 A yank stops an installed release from running unpinned once a check sees it, and can
-select an older release. Only one refresh per crate and policy runs at a time. Network
+select an older release. Only one refresh per crate and policy runs at a time, from the
+filesystem root so it never keeps the current directory in use. Network
 errors leave the cached release available. Each repeated error for a release is reported
 once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, doubling to
 at most 30 minutes; a successful refresh resets that delay, and only a successful check
