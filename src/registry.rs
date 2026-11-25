@@ -87,15 +87,20 @@ impl Release {
 	}
 }
 
-/// The unyanked index entry for `version`, ignoring build metadata as Cargo's `=` does.
+/// The unyanked index entry for `version`, ignoring build metadata as Cargo's `=` does. The
+/// whole file must parse, as the refresh's reading of it must.
 fn find(reader: impl Read, version: &Version) -> Result<Option<Release>> {
+	let mut found = None;
 	for release in serde_json::Deserializer::from_reader(reader).into_iter::<Release>() {
 		let release = release.context("malformed crates.io index")?;
-		if !release.yanked && Version::parse(&release.vers).is_ok_and(|vers| vers.cmp_precedence(version).is_eq()) {
-			return Ok(Some(release));
+		if found.is_none()
+			&& !release.yanked
+			&& Version::parse(&release.vers).is_ok_and(|vers| vers.cmp_precedence(version).is_eq())
+		{
+			found = Some(release);
 		}
 	}
-	Ok(None)
+	Ok(found)
 }
 
 /// The manifest in a `.crate`'s `root` directory, reading at most `unpacked` decompressed bytes.
@@ -254,5 +259,8 @@ mod tests {
 		assert_eq!(release.checksum().unwrap(), [0xab; 32]);
 		assert!(find("2.0.0").unwrap().checksum().is_err());
 		assert!(super::find(&b"{"[..], &Version::new(1, 0, 0)).is_err());
+		// A malformed row after the match still fails the whole file.
+		let truncated = format!("{index}\n{{\"name\":");
+		assert!(super::find(truncated.as_bytes(), &Version::new(1, 0, 1)).is_err());
 	}
 }

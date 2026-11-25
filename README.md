@@ -158,7 +158,7 @@ once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, 
 at most 30 minutes; a successful refresh resets that delay, and only a successful check
 counts toward the daily limit. Conditional index requests retain their validator even when
 installation fails. Installing a release also makes the requests binstalk or Cargo need,
-such as binstalk's own read of the crate's index entry. Release requests have a
+and crabx's own bounded read of the crate's index entry and `.crate` for its manifest. Release requests have a
 five-minute total timeout and a 30-second read timeout.
 
 Unix uses `exec`, preserving the PID, arguments, standard streams, signals, and exit

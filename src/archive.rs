@@ -4,9 +4,10 @@
 //! even then the archive is hostile input: each budget is checked before the bytes or paths it
 //! guards are written.
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result, bail, ensure};
 use binstalk::manifests::cargo_toml_binstall::{CompressionFmt, PkgFmt, PkgFmtDecomposed, TarBasedFmt};
 use std::{
+	cell::Cell,
 	collections::HashSet,
 	fs::{self, File},
 	io::{self, BufRead, BufReader, Read},
@@ -18,20 +19,27 @@ use std::{
 pub struct Limits {
 	/// Bytes of the downloaded archive.
 	pub archive: u64,
-	/// Bytes decompressed from it, which bounds what extraction writes.
+	/// Bytes decompressed from it, and bytes extraction writes, sparse files' holes included.
 	pub extracted: u64,
 	/// Files and directories extraction creates, implicit parents included.
 	pub paths: usize,
+	/// Bytes of a zip's central directory and end records, which are parsed into memory.
+	pub directory: u64,
 }
 
 impl Limits {
-	/// Far above any Rust CLI's release, and far below a cache volume.
+	/// Far above any Rust CLI's release, and far below a cache volume or memory.
 	pub const RELEASE: Self = Self {
 		archive: 512 << 20,
 		extracted: 2 << 30,
 		paths: 10_000,
+		// 10,000 entries take about a megabyte.
+		directory: 8 << 20,
 	};
 }
+
+/// The longest entry name extraction accepts, Linux's `PATH_MAX`.
+const NAME_BYTES: usize = 4096;
 
 /// Unpack `archive`, a `fmt` package, to `dst`, which must not exist yet.
 pub fn extract(archive: tempfile::NamedTempFile, fmt: PkgFmt, dst: &Path, limits: Limits) -> Result<()> {
@@ -56,7 +64,7 @@ pub fn extract(archive: tempfile::NamedTempFile, fmt: PkgFmt, dst: &Path, limits
 			let input = decoder(compression, BufReader::new(archive.reopen()?))?;
 			tar(input, dst, limits)?;
 		}
-		PkgFmtDecomposed::Zip => zip(archive.as_file(), dst, limits)?,
+		PkgFmtDecomposed::Zip => zip(archive.reopen()?, dst, limits)?,
 	}
 	Ok(())
 }
@@ -73,7 +81,7 @@ fn decoder<'a>(compression: Option<CompressionFmt>, input: impl BufRead + 'a) ->
 }
 
 fn tar(input: impl Read, dst: &Path, limits: Limits) -> Result<()> {
-	let mut paths = Paths::new(dst, limits.paths)?;
+	let mut output = Output::new(dst, limits)?;
 	// Counting the whole decompressed stream also bounds headers and entries that are skipped.
 	let mut archive = tar::Archive::new(Limited::new(input, limits.extracted, "release archive"));
 	for entry in archive.entries()? {
@@ -81,34 +89,35 @@ fn tar(input: impl Read, dst: &Path, limits: Limits) -> Result<()> {
 		let kind = entry.header().entry_type();
 		// Links and special files are never unpacked, as binstalk never did.
 		if kind.is_file() {
-			let mut file = paths.file(&entry.path()?)?;
-			io::copy(&mut entry, &mut file)?;
+			// A sparse file's holes are filled past the stream's count, so writes count too.
+			let name = entry.path()?.into_owned();
+			output.file(&name, &mut entry)?;
 		} else if kind.is_dir() {
-			paths.dir(&entry.path()?)?;
+			output.dir(&entry.path()?)?;
 		}
 	}
 	Ok(())
 }
 
-fn zip(archive: &File, dst: &Path, limits: Limits) -> Result<()> {
-	use rc_zip_sync::{ReadZip, rc_zip::parse::EntryKind};
-	let mut paths = Paths::new(dst, limits.paths)?;
-	let mut remaining = limits.extracted;
-	for entry in archive.read_zip()?.entries() {
+fn zip(archive: File, dst: &Path, limits: Limits) -> Result<()> {
+	use rc_zip_sync::{ReadZipWithSize, rc_zip::parse::EntryKind};
+	let mut output = Output::new(dst, limits)?;
+	let size = archive.metadata()?.len();
+	let archive = Metered {
+		file: archive,
+		budget: Cell::new(Some(limits.directory)),
+		limit: limits.directory,
+	};
+	let parsed = archive.read_zip_with_size(size)?;
+	// Entries' data is bounded by what extraction writes instead.
+	archive.budget.set(None);
+	for entry in parsed.entries() {
 		let name = entry
 			.sanitized_name()
 			.with_context(|| format!("archive entry {:?} leaves the extraction directory", entry.name))?;
 		match entry.kind() {
-			EntryKind::Directory => paths.dir(Path::new(name))?,
-			EntryKind::File => {
-				let mut file = paths.file(Path::new(name))?;
-				let mut input = Limited {
-					remaining,
-					..Limited::new(entry.reader(), limits.extracted, "release archive")
-				};
-				io::copy(&mut input, &mut file)?;
-				remaining = input.remaining;
-			}
+			EntryKind::Directory => output.dir(Path::new(name))?,
+			EntryKind::File => output.file(Path::new(name), entry.reader())?,
 			// Like a tarball's, a zip's links are never unpacked.
 			EntryKind::Symlink => (),
 		}
@@ -116,39 +125,92 @@ fn zip(archive: &File, dst: &Path, limits: Limits) -> Result<()> {
 	Ok(())
 }
 
-/// The files and directories extraction has created under its root.
-struct Paths {
-	root: PathBuf,
-	created: HashSet<PathBuf>,
-	limit: usize,
+/// The staged zip, charging each byte rc-zip reads against `budget` while it parses the
+/// directory it holds in memory.
+struct Metered {
+	file: File,
+	budget: Cell<Option<u64>>,
+	limit: u64,
 }
 
-impl Paths {
-	fn new(root: &Path, limit: usize) -> Result<Self> {
+impl rc_zip_sync::HasCursor for Metered {
+	type Cursor<'a> = Cursor<'a>;
+
+	fn cursor_at(&self, offset: u64) -> Cursor<'_> {
+		Cursor { zip: self, offset }
+	}
+}
+
+struct Cursor<'a> {
+	zip: &'a Metered,
+	offset: u64,
+}
+
+impl Read for Cursor<'_> {
+	fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+		#[cfg(unix)]
+		let read = std::os::unix::fs::FileExt::read_at(&self.zip.file, buf, self.offset)?;
+		#[cfg(windows)]
+		let read = std::os::windows::fs::FileExt::seek_read(&self.zip.file, buf, self.offset)?;
+		if let Some(budget) = self.zip.budget.get() {
+			let left = budget
+				.checked_sub(read as u64)
+				.ok_or_else(|| io::Error::other(format!("zip directory is larger than {} bytes", self.zip.limit)))?;
+			self.zip.budget.set(Some(left));
+		}
+		self.offset += read as u64;
+		Ok(read)
+	}
+}
+
+/// What extraction has created under its root, and may still create.
+struct Output {
+	root: PathBuf,
+	created: HashSet<PathBuf>,
+	limits: Limits,
+	/// Bytes still to write, shared by every file.
+	remaining: u64,
+}
+
+impl Output {
+	fn new(root: &Path, limits: Limits) -> Result<Self> {
 		fs::create_dir(root)?;
 		Ok(Self {
 			root: root.to_owned(),
 			created: HashSet::new(),
-			limit,
+			limits,
+			remaining: limits.extracted,
 		})
 	}
 
 	/// Count `name` and each parent it implies, then return where it goes, or none for the root.
 	fn claim(&mut self, name: &Path) -> Result<Option<PathBuf>> {
+		let escapes = || anyhow::anyhow!("archive entry {} leaves the extraction directory", name.display());
+		ensure!(
+			name.as_os_str().len() <= NAME_BYTES,
+			"archive entry name is longer than {NAME_BYTES} bytes"
+		);
 		let mut relative = PathBuf::new();
 		for component in name.components() {
 			match component {
 				Component::Normal(part) => relative.push(part),
 				Component::CurDir => (),
-				_ => bail!("archive entry {} leaves the extraction directory", name.display()),
+				_ => return Err(escapes()),
 			}
+		}
+		// On Windows, a later part such as `C:x` reads as a drive prefix and replaces the path.
+		if !relative.components().all(|c| matches!(c, Component::Normal(_))) {
+			return Err(escapes());
 		}
 		if relative.as_os_str().is_empty() {
 			return Ok(None);
 		}
 		for path in relative.ancestors().filter(|path| !path.as_os_str().is_empty()) {
-			if self.created.insert(path.to_owned()) && self.created.len() > self.limit {
-				bail!("release archive holds more than {} files and directories", self.limit);
+			if self.created.insert(path.to_owned()) && self.created.len() > self.limits.paths {
+				bail!(
+					"release archive holds more than {} files and directories",
+					self.limits.paths
+				);
 			}
 		}
 		Ok(Some(self.root.join(relative)))
@@ -161,12 +223,19 @@ impl Paths {
 		Ok(())
 	}
 
-	fn file(&mut self, name: &Path) -> Result<File> {
+	fn file(&mut self, name: &Path, input: impl Read) -> Result<()> {
 		let path = self.claim(name)?.context("archive file entry has no name")?;
 		if let Some(parent) = path.parent() {
 			fs::create_dir_all(parent)?;
 		}
-		File::create_new(&path).with_context(|| format!("archive repeats {}", name.display()))
+		let mut file = File::create_new(&path).with_context(|| format!("archive repeats {}", name.display()))?;
+		let mut input = Limited {
+			remaining: self.remaining,
+			..Limited::new(input, self.limits.extracted, "release archive")
+		};
+		io::copy(&mut input, &mut file)?;
+		self.remaining = input.remaining;
+		Ok(())
 	}
 }
 
@@ -211,6 +280,7 @@ pub mod tests {
 		archive: 1 << 20,
 		extracted: 64 << 10,
 		paths: 8,
+		directory: 128 << 10,
 	};
 
 	/// A tarball of `(path, contents)` regular files, written byte-for-byte so tests can hold
@@ -301,6 +371,13 @@ pub mod tests {
 			assert!(error.contains("leaves the extraction directory"), "{error}");
 			assert_eq!(written(&temp.path().join("out")), (0, 0), "{path}");
 		}
+		// A drive prefix past the first component would replace the extraction root.
+		#[cfg(windows)]
+		{
+			let (temp, result) = unpack(PkgFmt::Tar, &tarball(&[("a/C:x", b"x")]), SMALL);
+			assert!(format!("{:#}", result.unwrap_err()).contains("leaves the extraction directory"));
+			assert_eq!(written(&temp.path().join("out")), (0, 0));
+		}
 		let (_, result) = unpack(PkgFmt::Tar, &tarball(&[("tool", b"1"), ("./tool", b"2")]), SMALL);
 		assert!(format!("{:#}", result.unwrap_err()).contains("archive repeats"));
 	}
@@ -378,6 +455,82 @@ pub mod tests {
 		out.extend(start.to_le_bytes());
 		out.extend(0u16.to_le_bytes());
 		out
+	}
+
+	#[test]
+	fn sparse_files_count_their_holes_against_the_byte_budget() {
+		let record = |key: &str, value: &str| {
+			let body = format!(" {key}={value}\n");
+			let mut length = body.len();
+			while length != length.to_string().len() + body.len() {
+				length = length.to_string().len() + body.len();
+			}
+			format!("{length}{body}").into_bytes()
+		};
+		let mut builder = tar::Builder::new(Vec::new());
+		let mut append = |path: &str, kind, data: &[u8]| {
+			let mut header = tar::Header::new_ustar();
+			header.set_path(path).unwrap();
+			header.set_entry_type(kind);
+			header.set_size(data.len() as u64);
+			header.set_mode(0o644);
+			header.set_cksum();
+			builder.append(&header, data).unwrap();
+		};
+		let pax: Vec<u8> = [
+			("GNU.sparse.major", "1"),
+			("GNU.sparse.minor", "0"),
+			("GNU.sparse.name", "tool"),
+			("GNU.sparse.realsize", "1048576"),
+		]
+		.iter()
+		.flat_map(|(key, value)| record(key, value))
+		.collect();
+		append("PaxHeaders/tool", tar::EntryType::XHeader, &pax);
+		// One byte at the end of a 1 MiB file: the rest is a hole the reader fills with zeros.
+		let mut data = b"1\n1048575\n1\n".to_vec();
+		data.resize(512, 0);
+		data.push(b'x');
+		append("tool", tar::EntryType::Regular, &data);
+		let tar = builder.into_inner().unwrap();
+		assert!((tar.len() as u64) < SMALL.extracted);
+		let (temp, result) = unpack(PkgFmt::Tar, &tar, SMALL);
+		let error = format!("{:#}", result.unwrap_err());
+		assert!(error.contains("unpacks to more than 65536 bytes"), "{error}");
+		assert!(written(&temp.path().join("out")).1 <= SMALL.extracted);
+		// The same file within budget unpacks whole.
+		let (temp, result) = unpack(
+			PkgFmt::Tar,
+			&tar,
+			Limits {
+				extracted: 2 << 20,
+				..SMALL
+			},
+		);
+		result.unwrap();
+		assert_eq!(fs::metadata(temp.path().join("out/tool")).unwrap().len(), 1 << 20);
+	}
+
+	#[test]
+	fn overlong_names_are_refused_before_their_parents_are_counted() {
+		let name = "a/".repeat(NAME_BYTES / 2) + "tool";
+		let mut builder = tar::Builder::new(Vec::new());
+		let mut header = tar::Header::new_gnu();
+		header.set_size(0);
+		header.set_entry_type(tar::EntryType::Regular);
+		builder.append_data(&mut header, &name, &b""[..]).unwrap();
+		let (_, result) = unpack(PkgFmt::Tar, &builder.into_inner().unwrap(), SMALL);
+		assert!(format!("{:#}", result.unwrap_err()).contains("longer than 4096 bytes"));
+	}
+
+	#[test]
+	fn a_zips_directory_is_bounded_before_it_is_parsed() {
+		let names: Vec<_> = (0..3000).map(|i| format!("f{i:04}")).collect();
+		let many: Vec<_> = names.iter().map(|name| (name.as_str(), &b""[..])).collect();
+		let (temp, result) = unpack(PkgFmt::Zip, &zip(&many), SMALL);
+		let error = format!("{:#}", result.unwrap_err());
+		assert!(error.contains("zip directory is larger than 131072 bytes"), "{error}");
+		assert_eq!(written(&temp.path().join("out")), (0, 0));
 	}
 
 	#[test]

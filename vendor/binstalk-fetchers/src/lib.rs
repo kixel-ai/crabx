@@ -111,8 +111,8 @@ pub trait Fetcher: Send + Sync {
 	/// Find the package, if it is available for download
 	///
 	/// This may look for multiple remote targets, but must write (using some form of interior
-	/// mutability) the best one to the implementing struct in some way so `fetch_and_extract` can
-	/// proceed without additional work.
+	/// mutability) the best one to the implementing struct in some way so [`Fetcher::download`]
+	/// needs only its URL and signature settings, with no further discovery.
 	///
 	/// Must return `true` if a package is available, `false` if none is, and reserve errors to
 	/// fatal conditions only.
