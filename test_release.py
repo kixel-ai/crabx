@@ -113,7 +113,7 @@ class Plan(unittest.TestCase):
             out = Path(temp) / "out"
             with patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), patch.object(r, "fetch", side_effect=fetch):
                 r.npm_plan()
-            self.assertEqual(out.read_text(), "version=0.2.0\npublish=true\n")
+            self.assertEqual(out.read_text(), "version=0.2.0\npublish=true\ninstall=true\n")
 
     def test_missing_looks_up_the_version_npm_stores(self):
         # npm drops build metadata on publish, so 0.2.0+build-5 is stored as 0.2.0.

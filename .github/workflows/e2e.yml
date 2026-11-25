@@ -13,8 +13,11 @@ on:
       - .github/workflows/crabx-build.yml
       - pipeline/**
       - tests/e2e.sh
+      - tests/install.sh
       - release.py
       - install.ps1
+      - npm/**
+      - src/launcher.rs
   workflow_dispatch:
 
 permissions:
@@ -76,6 +79,62 @@ jobs:
           TARGET: ${{ matrix.target }}
           EXE: ${{ runner.os == 'Windows' && '.exe' || '' }}
         run: tests/e2e.sh "archives/$ARCHIVE/crabx$EXE" "$TARGET"
+
+  # The npm packages release.py would publish for this build, not the registry's.
+  pack:
+    needs: [plan, build]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: crabx-crabx@${{ needs.plan.outputs.version }}@*
+          merge-multiple: true
+          path: archives
+      - env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          python3 release.py pack "$VERSION" archives packages
+          mkdir tarballs
+          for package in packages/@kixel/*; do npm pack "./$package" --pack-destination tarballs; done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-packages
+          path: tarballs/*.tgz
+          if-no-files-found: error
+
+  # `npx @kixel/crabx install`, then a crate's launcher, run from a new shell on every OS.
+  install:
+    needs: [plan, pack]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-packages
+          path: tarballs
+      - env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        # Without optional dependencies, npm can't swap in the registry's platform package. npm
+        # reads a relative `tarballs/x.tgz` as a GitHub repository, so pass native absolute paths.
+        run: |
+          platform=$(node -p "require('./npm/crabx.js').packageName(process.platform, process.arch).replace('@', '').replace('/', '-')")
+          tarballs=$(node -p "require('path').resolve('tarballs')")
+          tests/install.sh fnox@1.50.0 --omit=optional "$tarballs/kixel-crabx-$VERSION.tgz" "$tarballs/$platform-$VERSION.tgz"
 
   test:
     strategy:

@@ -23,18 +23,24 @@ After it lands, check that `release.yml`'s npm job published 0.2.0. Then run
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
 commands in the goal, with `@kixel/crabx@0.2.0`, on an empty crabx cache, so
 a cold run resolves it rather than a warm cache's day-old index.
+`release.yml`'s `npm-check` job also runs `crabx install` from the published
+package on all three OSes.
+
+Once npm's `latest` is 0.2.0, a PR offers `npx @kixel/crabx install` beside
+the npm line in README.md's install block and the site's install tabs
+(`site/index.html`), and drops "From crabx 0.2.0" from README.md's
+`crabx install` section. npm's 0.1.x reads `install` as a crate name, so
+neither can offer it before then.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
 
 ## Required
 
-- [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Pipeline release](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
 - [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner, enforces GitHub origin checks across `pkg-url` and redirects, and isolates 0.2.0 entries in a policy-versioned cache namespace
 - [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds registry, network, and staging budgets
 
 ## Related
 
-- [First publish](/quest/m0/first-publish.md) - validated npm's trusted publishers with 0.1.1, so this release needs no npm setup
 - [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`
