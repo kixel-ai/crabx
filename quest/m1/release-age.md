@@ -84,7 +84,3 @@ Recommendations:
 - Accept mise's duration forms (`24h`, `7d`) and reject anything else. The
   flag goes before the crate, like crabx's other options.
 - The README says which versions an unpinned run picks, and why.
-
-## Required
-
-- [0.1.1](/quest/m0/release-0.1.1.md) - cut before this lands, so 0.1.1 ships only the musl fallback
