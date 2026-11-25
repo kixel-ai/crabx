@@ -209,7 +209,7 @@ async fn fetch(stage: &Path, cache: &Cache, spec: &Spec, quickinstall: bool) -> 
 		// Checked after each candidate, even a failed one, so only discovery that reached GitHub's
 		// API needs the token.
 		ensure!(!fetchers::token_rejected(), network::REJECTED_TOKEN);
-		let found = found??;
+		let found = found?.with_context(|| format!("look up {name}'s {} release", fetcher.target()))?;
 		if !found {
 			continue;
 		}
@@ -292,13 +292,23 @@ impl Package {
 				"release maps several binaries to the same file"
 			);
 			// Only a static musl build runs on a glibc host; a dynamic one needs a loader it lacks.
-			ensure!(
-				!fetcher.target().ends_with("-linux-musl") || !elf_interpreter(&file.source)?,
-				"{}@{}'s only Linux build, {}, links dynamically against musl; use --build to compile explicitly",
-				self.name,
-				self.version,
-				fetcher.target()
-			);
+			if fetcher.target().ends_with("-linux-musl") {
+				let dynamic = elf_interpreter(&file.source).with_context(|| {
+					format!(
+						"{}@{}'s {} build is not a usable executable; use --build to compile explicitly",
+						self.name,
+						self.version,
+						fetcher.target()
+					)
+				})?;
+				ensure!(
+					!dynamic,
+					"{}@{}'s only Linux build, {}, links dynamically against musl; use --build to compile explicitly",
+					self.name,
+					self.version,
+					fetcher.target()
+				);
+			}
 			files.push(file);
 		}
 		ensure!(!files.is_empty(), "release contains no runnable binary");
@@ -438,26 +448,32 @@ fn elf_interpreter(path: &Path) -> Result<bool> {
 	use std::io::{Read, Seek, SeekFrom};
 	const PT_INTERP: u32 = 3;
 	let mut file = fs::File::open(path)?;
+	let length = file.metadata()?.len();
 	let mut header = [0; 64];
 	file.read_exact(&mut header).context("binary is too short for ELF")?;
 	ensure!(header.starts_with(b"\x7fELF"), "binary is not ELF");
 	ensure!(header[5] == 1, "binary is not little-endian ELF");
 	let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]) as u64;
 	let u32_at = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
-	let (offset, size, count) = match header[4] {
+	let (offset, size, count, minimum) = match header[4] {
 		1 => (
 			u32_at(&header, 0x1c) as u64,
 			u16_at(&header, 0x2a),
 			u16_at(&header, 0x2c),
+			32,
 		),
 		2 => (
 			u64::from_le_bytes(header[0x20..0x28].try_into().unwrap()),
 			u16_at(&header, 0x36),
 			u16_at(&header, 0x38),
+			56,
 		),
 		_ => bail!("binary has an unknown ELF class"),
 	};
-	ensure!(size >= 4, "binary has malformed ELF program headers");
+	ensure!(
+		size >= minimum && offset.checked_add(size * count).is_some_and(|end| end <= length),
+		"binary has malformed or truncated ELF program headers"
+	);
 	let mut entry = [0; 4];
 	for index in 0..count {
 		file.seek(SeekFrom::Start(offset + index * size))?;
@@ -490,9 +506,12 @@ fn host_targets() -> Vec<Vec<String>> {
 		]);
 	}
 	// A static musl build runs on any glibc host, so it serves crates that ship no gnu one.
-	if let Some(arch) = binstalk::TARGET.strip_suffix("-linux-gnu") {
-		tiers.push(vec![format!("{arch}-linux-musl")]);
-	}
+	let musl = match binstalk::TARGET {
+		"x86_64-unknown-linux-gnu" => Some("x86_64-unknown-linux-musl"),
+		"aarch64-unknown-linux-gnu" => Some("aarch64-unknown-linux-musl"),
+		_ => None,
+	};
+	tiers.extend(musl.map(|target| vec![target.to_owned()]));
 	tiers
 }
 
@@ -560,7 +579,12 @@ mod tests {
 		assert!(elf_interpreter(&path).unwrap());
 		fs::write(&path, elf(1)).unwrap();
 		assert!(!elf_interpreter(&path).unwrap());
-		fs::write(&path, &elf(3)[..100]).unwrap();
+		// Truncated anywhere inside the program-header table, even past the last type field.
+		fs::write(&path, &elf(1)[..64 + 56 + 4]).unwrap();
+		assert!(elf_interpreter(&path).is_err());
+		let mut short = elf(1);
+		short[0x36..0x38].copy_from_slice(&4u16.to_le_bytes());
+		fs::write(&path, short).unwrap();
 		assert!(elf_interpreter(&path).is_err());
 		fs::write(&path, b"#!/bin/sh\n").unwrap();
 		assert!(elf_interpreter(&path).is_err());

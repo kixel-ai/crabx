@@ -196,7 +196,7 @@ impl GhCrateMeta {
 					}
 				}
 
-				Ok(Box::pin(client.remote_gettable(url)).await?.then_some(resolved))
+				Ok(remote_exists(&client, url).await?.then_some(resolved))
 			}
 		}));
 	}

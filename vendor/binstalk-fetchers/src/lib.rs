@@ -53,7 +53,7 @@ pub enum FetchError {
 	#[diagnostic(transparent)]
 	TemplateRender(#[from] leon::RenderError),
 
-	#[error("Failed to render template: {0}")]
+	#[error("GitHub API request failed: {0}")]
 	GhApi(#[from] GhApiError),
 
 	#[error(transparent)]

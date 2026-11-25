@@ -10,7 +10,7 @@ use std::{
 
 pub(super) use binstalk_downloader::{
 	download::{Download, ExtractedFiles},
-	remote::{Client, Url},
+	remote::{Client, StatusCode, Url},
 };
 pub(super) use binstalk_git_repo_api::gh_api_client::GhApiClient;
 use binstalk_git_repo_api::gh_api_client::{GhApiError, GhReleaseArtifact, GhReleaseArtifactUrl};
@@ -98,7 +98,18 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 		GH_API_CLIENT_FAILED.store(true, Relaxed);
 	}
 
-	Ok(Box::pin(client.remote_gettable(url.clone())).await?)
+	remote_exists(&client, url.clone()).await
+}
+
+/// Whether `url` serves a file: 404 is a miss, and any other failure is an error rather than
+/// a miss, so a failed lookup never falls through to a less preferred candidate.
+pub(super) async fn remote_exists(client: &Client, url: Url) -> Result<bool, FetchError> {
+	let response = Box::pin(client.get(url).send(false)).await?;
+	if response.status() == StatusCode::NOT_FOUND {
+		return Ok(false);
+	}
+	response.error_for_status()?;
+	Ok(true)
 }
 
 #[derive(Debug)]
