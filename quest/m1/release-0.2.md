@@ -1,30 +1,34 @@
-# [S] Release crabx 0.2.0
+# [XS] Check crabx 0.2.0 on npm and offer npx install in the docs
 
 ## Goal
 
 crabx 0.2.0, with the musl fallback, `crabx install` and the release-age
 delay, is on crates.io and on npm as `@kixel/crabx`, published by
-`release.yml`, so `npx @kixel/crabx@latest token-max --version` runs
-token-max on glibc Linux and `npx @kixel/crabx@latest install token-max`
-installs it.
+`release.yml`, so `npx @kixel/crabx@latest fnox --version` runs fnox on
+glibc Linux and `npx @kixel/crabx@latest install fnox` installs it; and the
+install docs offer `npx @kixel/crabx install`.
 
 ## Plan
 
-The version PR bumps `version` in `Cargo.toml`, and once it lands,
-`release.yml` publishes everything. 0.2.0 rather than 0.1.1, since
-`crabx install` is a new command and the delay changes which version an
-unpinned run picks.
+The version PR bumped `version` in `Cargo.toml` to 0.2.0 (rather than 0.1.1's
+successor 0.1.2, since `crabx install` is a new command and the delay changes
+which version an unpinned run picks); its merge runs `release.yml`.
 
-0.1.1, the first publish through `release.yml`, validated npm's trusted publishers on
-2026-11-25, and npm has all seven packages at 0.1.1, so this release needs no npm setup.
-After it lands, check that `release.yml`'s npm job published 0.2.0. Then run
-`npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
-`npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
-doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
-commands in the goal, with `@kixel/crabx@0.2.0`, on an empty crabx cache, so
-a cold run resolves it rather than a warm cache's day-old index.
-`release.yml`'s `npm-check` job also runs `crabx install` from the published
-package on all three OSes.
+Check that `release.yml`'s npm job published 0.2.0, then on glibc Linux with
+an empty crabx cache (`XDG_CACHE_HOME` and `HOME` pointed at new directories) run
+`npx @kixel/crabx@0.2.0 crabx@0.2.0 --version`,
+`npx @kixel/crabx@0.2.0 fnox@1.50.0 --version` and
+`npx @kixel/crabx@0.2.0 install fnox@1.50.0`, then each unpinned command in
+the goal with `@kixel/crabx@0.2.0` on its own new empty cache, so a cold run
+resolves through the 24h delay rather than reusing the pinned runs' binary. `release.yml`'s `npm-check` job also
+runs `crabx install` from the published package on all three OSes.
+
+fnox stands in for token-max, which the plan named before
+[attestation binding](https://github.com/kixel-ai/crabx/pull/45) refused
+token-max@0.0.1 (its only attestation signs from `refs/heads/main`) and
+before token-max 0.1.0 existed. The musl-fallback check against a real crate
+stays with [e2e-musl-fallback](/quest/m1/e2e-musl-fallback.md), which waits on
+token-max republishing through crabx's pipeline.
 
 Once npm's `latest` is 0.2.0, a PR offers `npx @kixel/crabx install` beside
 the npm line in README.md's install block and the site's install tabs
@@ -34,3 +38,8 @@ neither can offer it before then.
 
 kixel-ai/token-max's `quest/m1/crabx.md`, which adds crabx tabs to
 max.kixel.me, waits on this release.
+
+## Waiting
+
+- Maintainer: merge the 0.2.0 version PR, which publishes to crates.io and npm
+  through `release.yml`; check with `npm view @kixel/crabx version`.
