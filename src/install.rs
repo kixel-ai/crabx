@@ -291,9 +291,9 @@ impl Package {
 				sources.insert(file.source.clone()),
 				"release maps several binaries to the same file"
 			);
-			// Only a static musl build runs on a glibc host; a dynamic one needs a loader it lacks.
+			// Only a static musl build for this machine runs on a glibc host; a dynamic one needs a loader it lacks.
 			if fetcher.target().ends_with("-linux-musl") {
-				let dynamic = elf_interpreter(&file.source).with_context(|| {
+				let dynamic = elf_interpreter(&file.source, fetcher.target()).with_context(|| {
 					format!(
 						"{}@{}'s {} build is not a usable executable; use --build to compile explicitly",
 						self.name,
@@ -443,33 +443,28 @@ fn build(stage: &Path, spec: &Spec, version: Option<&Version>) -> Result<Record>
 	})
 }
 
-/// Whether an ELF executable names a program interpreter, so it links dynamically.
-fn elf_interpreter(path: &Path) -> Result<bool> {
+/// Whether a 64-bit ELF executable for `target`'s machine names a program interpreter, so it links dynamically.
+fn elf_interpreter(path: &Path, target: &str) -> Result<bool> {
 	use std::io::{Read, Seek, SeekFrom};
 	const PT_INTERP: u32 = 3;
+	let machine = match target.split('-').next() {
+		Some("x86_64") => 62,
+		Some("aarch64") => 183,
+		_ => bail!("no ELF machine is known for {target}"),
+	};
 	let mut file = fs::File::open(path)?;
 	let length = file.metadata()?.len();
 	let mut header = [0; 64];
 	file.read_exact(&mut header).context("binary is too short for ELF")?;
 	ensure!(header.starts_with(b"\x7fELF"), "binary is not ELF");
-	ensure!(header[5] == 1, "binary is not little-endian ELF");
-	let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]) as u64;
-	let u32_at = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
-	let (offset, size, count, entry_size) = match header[4] {
-		1 => (
-			u32_at(&header, 0x1c) as u64,
-			u16_at(&header, 0x2a),
-			u16_at(&header, 0x2c),
-			32,
-		),
-		2 => (
-			u64::from_le_bytes(header[0x20..0x28].try_into().unwrap()),
-			u16_at(&header, 0x36),
-			u16_at(&header, 0x38),
-			56,
-		),
-		_ => bail!("binary has an unknown ELF class"),
-	};
+	ensure!(
+		header[4] == 2 && header[5] == 1,
+		"binary is not 64-bit little-endian ELF"
+	);
+	let u16_at = |at: usize| u16::from_le_bytes([header[at], header[at + 1]]) as u64;
+	ensure!(u16_at(0x12) == machine, "binary is not built for {target}");
+	let offset = u64::from_le_bytes(header[0x20..0x28].try_into().unwrap());
+	let (size, count, entry_size) = (u16_at(0x36), u16_at(0x38), 56);
 	ensure!(
 		size == entry_size && count > 0 && offset.checked_add(size * count).is_some_and(|end| end <= length),
 		"binary has malformed or truncated ELF program headers"
@@ -568,6 +563,7 @@ mod tests {
 		let elf = |second: u32| {
 			let mut bytes = vec![0u8; 64 + 2 * 56];
 			bytes[..6].copy_from_slice(b"\x7fELF\x02\x01");
+			bytes[0x12..0x14].copy_from_slice(&62u16.to_le_bytes());
 			bytes[0x20..0x28].copy_from_slice(&64u64.to_le_bytes());
 			bytes[0x36..0x38].copy_from_slice(&56u16.to_le_bytes());
 			bytes[0x38..0x3a].copy_from_slice(&2u16.to_le_bytes());
@@ -576,26 +572,33 @@ mod tests {
 			bytes
 		};
 		let path = temp.path().join("bin");
+		let musl = "x86_64-unknown-linux-musl";
 		fs::write(&path, elf(3)).unwrap();
-		assert!(elf_interpreter(&path).unwrap());
+		assert!(elf_interpreter(&path, musl).unwrap());
 		fs::write(&path, elf(1)).unwrap();
-		assert!(!elf_interpreter(&path).unwrap());
+		assert!(!elf_interpreter(&path, musl).unwrap());
+		// Built for another machine, or 32-bit.
+		assert!(elf_interpreter(&path, "aarch64-unknown-linux-musl").is_err());
+		let mut narrow = elf(1);
+		narrow[4] = 1;
+		fs::write(&path, narrow).unwrap();
+		assert!(elf_interpreter(&path, musl).is_err());
 		// Truncated anywhere inside the program-header table, even past the last type field.
 		fs::write(&path, &elf(1)[..64 + 56 + 4]).unwrap();
-		assert!(elf_interpreter(&path).is_err());
+		assert!(elf_interpreter(&path, musl).is_err());
 		// Linux loads only its own entry size, and only a non-empty table.
 		for (at, value) in [(0x36, 4u16), (0x36, 64), (0x38, 0)] {
 			let mut malformed = elf(1);
 			malformed.resize(64 + 2 * 64, 0);
 			malformed[at..at + 2].copy_from_slice(&value.to_le_bytes());
 			fs::write(&path, malformed).unwrap();
-			assert!(elf_interpreter(&path).is_err());
+			assert!(elf_interpreter(&path, musl).is_err());
 		}
 		fs::write(&path, b"#!/bin/sh\n").unwrap();
-		assert!(elf_interpreter(&path).is_err());
+		assert!(elf_interpreter(&path, musl).is_err());
 		if cfg!(all(target_os = "linux", target_env = "gnu")) {
 			// This test binary links glibc dynamically.
-			assert!(elf_interpreter(&std::env::current_exe().unwrap()).unwrap());
+			assert!(elf_interpreter(&std::env::current_exe().unwrap(), binstalk::TARGET).unwrap());
 		}
 	}
 
