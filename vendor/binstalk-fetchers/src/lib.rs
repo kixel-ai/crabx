@@ -379,7 +379,7 @@ pub struct Receipt {
 	pub declared: Option<String>,
 	/// `declared` after redirects, as binstalk derives default archive URLs from it.
 	pub repository: Option<String>,
-	/// Whether the crate's own `pkg-url` chose the archive URL, not a default template.
+	/// Whether the crate's own `pkg-url` chose the archive URL without taking the repository from `{ repo }`.
 	pub explicit: bool,
 	/// The resolved archive URL before redirects.
 	pub url: url::Url,

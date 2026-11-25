@@ -26,7 +26,7 @@ impl Redirects {
 				return attempt.error("too many redirects");
 			}
 			let mut hops = attempt.previous().to_vec();
-			let start = hops.remove(0);
+			let start = unfragmented(hops.remove(0));
 			hops.push(attempt.url().clone());
 			log.0.lock().unwrap().entry(start).or_default().insert(hops);
 			attempt.follow()
@@ -38,10 +38,16 @@ impl Redirects {
 		self.0
 			.lock()
 			.unwrap()
-			.get(start)
+			.get(&unfragmented(start.clone()))
 			.map(|chains| chains.iter().cloned().collect())
 			.unwrap_or_default()
 	}
+}
+
+// A request's redirect chain starts at its URL without the fragment, which is never sent.
+fn unfragmented(mut url: Url) -> Url {
+	url.set_fragment(None);
+	url
 }
 
 /// The GitHub repository `receipt`'s archive must be attested in, or none when GitHub is not
@@ -385,6 +391,11 @@ mod tests {
 			let middle = url(&format!("http://{address}/middle"));
 			let end = url(&format!("http://{address}/end"));
 			assert_eq!(redirects.chains(&start), [vec![middle.clone()], vec![middle, end]]);
+			// A fragment is never sent, so it names the same request.
+			let fragment = url(&format!("http://{address}/start#asset"));
+			assert_eq!(redirects.chains(&fragment), redirects.chains(&start));
+			assert!(client.get(fragment.clone()).send().await.unwrap().status().is_success());
+			assert_eq!(redirects.chains(&fragment).len(), 2);
 			assert!(redirects.chains(&url(&format!("http://{address}/end"))).is_empty());
 			// Like reqwest's default, ten redirects are followed and an eleventh is an error.
 			let endless = client.get(format!("http://{address}/hop0")).send().await.unwrap_err();

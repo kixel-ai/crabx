@@ -76,7 +76,7 @@ every other GitHub origin must agree with it, or it is an error. A `pkg-url`, in
 or redirect that downloads from a different GitHub repository fails, as does a GitHub release
 CDN URL (`release-assets.githubusercontent.com`) that no `github.com` release URL redirected
 to directly. A crate whose `repository` is not on GitHub, or redirects into it, may serve releases
-from GitHub only when its own `pkg-url` names that repository. A crate with no `repository` whose
+from GitHub only when its own `pkg-url` names that repository itself, not through `{ repo }`. A crate with no `repository` whose
 `pkg-url` names a GitHub release is attested in that repository. The verified result
 stays with the cached entry; a pinned, cached invocation makes no network request and
 requires neither Cargo nor GitHub's CLI.
