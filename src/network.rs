@@ -1,5 +1,6 @@
 use crate::{
 	cache::{self, Cache, Record},
+	cargo,
 	cli::{Args, Spec},
 	index::{Index, MinimumAge},
 	install,
@@ -75,10 +76,21 @@ pub async fn github_token_accepted() -> bool {
 /// The error for a token GitHub rejects.
 pub const REJECTED_TOKEN: &str = "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it";
 
-// Spool responses to disk instead of retaining the sparse index or pages of bundles.
-pub async fn spool(mut response: Response, directory: &std::path::Path) -> Result<tempfile::NamedTempFile> {
+/// Spool `response` to a file in `directory`, failing once it passes `limit` bytes, instead of
+/// holding the sparse index or attestation bundles in memory.
+pub async fn spool(mut response: Response, directory: &std::path::Path, limit: u64) -> Result<tempfile::NamedTempFile> {
+	let url = response.url().clone();
+	let too_large = || anyhow::anyhow!("{url} is larger than {limit} bytes");
+	if response.content_length().is_some_and(|length| length > limit) {
+		return Err(too_large());
+	}
 	let mut file = tempfile::NamedTempFile::new_in(directory)?;
+	let mut total = 0u64;
 	while let Some(chunk) = response.chunk().await? {
+		total += chunk.len() as u64;
+		if total > limit {
+			return Err(too_large());
+		}
 		file.write_all(&chunk)?;
 	}
 	Ok(file)
@@ -226,14 +238,24 @@ impl Failure {
 }
 
 pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
+	let caller = cargo::Caller::current()?;
 	let mut command = Command::new(std::env::current_exe()?);
+	command.env(crate::launcher::REFRESH, "1");
+	// The updater outlives this invocation, so it must not keep the caller's directory in use.
+	command.current_dir(cargo::root(&caller.dir));
 	// The effective delay, whether it came from the flag, the environment or the default.
-	command
-		.arg("--refresh")
-		.arg("--minimum-release-age")
-		.arg(age.to_string());
+	command.arg("--minimum-release-age").arg(age.to_string());
 	if args.build {
 		command.arg("--build");
+		// Resolved here, since the updater runs from another directory. A refused toolchain still
+		// lets the updater fetch the index, which needs no Cargo, so a yank is noticed; it refuses
+		// only to build.
+		match cargo::Toolchain::new(&caller) {
+			Ok(toolchain) => toolchain.env(&mut command),
+			Err(error) => {
+				command.env(cargo::REFUSED, format!("{error:#}"));
+			}
+		}
 	}
 	if args.allow_quickinstall {
 		command.arg("--allow-quickinstall");
@@ -300,8 +322,49 @@ fn take_refresh_error(cache: &Cache) -> Result<Option<String>> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
 	use super::*;
+
+	/// Answer one HTTP request with `body`, declaring its length only if `declared`, at the returned URL.
+	pub async fn serve(body: Vec<u8>, declared: bool) -> String {
+		use tokio::io::{AsyncReadExt, AsyncWriteExt};
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+		let address = listener.local_addr().unwrap();
+		tokio::spawn(async move {
+			let (mut stream, _) = listener.accept().await.unwrap();
+			let mut request = Vec::new();
+			while !request.ends_with(b"\r\n\r\n") {
+				request.push(stream.read_u8().await.unwrap());
+			}
+			let length = match declared {
+				true => format!("Content-Length: {}\r\n", body.len()),
+				false => String::new(),
+			};
+			let head = format!("HTTP/1.1 200 OK\r\n{length}Connection: close\r\n\r\n");
+			// The client hangs up once it has seen too much.
+			let _ = stream.write_all(head.as_bytes()).await;
+			let _ = stream.write_all(&body).await;
+		});
+		format!("http://{address}/file")
+	}
+
+	#[test]
+	fn spooling_fails_past_its_limit_whether_or_not_the_length_is_declared() {
+		let temp = tempfile::tempdir().unwrap();
+		let client = Client::builder().no_proxy().build().unwrap();
+		runtime().unwrap().block_on(async {
+			for declared in [true, false] {
+				let response = client.get(serve(vec![7; 1000], declared).await).send().await.unwrap();
+				let error = spool(response, temp.path(), 999).await.unwrap_err().to_string();
+				assert!(error.ends_with("is larger than 999 bytes"), "{error}");
+				let response = client.get(serve(vec![7; 1000], declared).await).send().await.unwrap();
+				let file = spool(response, temp.path(), 1000).await.unwrap();
+				assert_eq!(fs::read(file.path()).unwrap(), [7; 1000]);
+			}
+		});
+		// A refused response leaves nothing behind.
+		assert_eq!(fs::read_dir(temp.path()).unwrap().count(), 0);
+	}
 
 	#[test]
 	fn unpinned_runs_refresh_only_when_a_check_is_due_or_a_newer_release_qualifies() {

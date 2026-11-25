@@ -9,8 +9,8 @@ check:
     cargo clippy --locked --all-targets -- -D warnings
     cargo fmt --all --check
     ruff check --select F
-    shellcheck install.sh tests/e2e.sh
-    shfmt -d install.sh tests/e2e.sh
+    shellcheck install.sh tests/e2e.sh tests/install.sh
+    shfmt -d install.sh tests/e2e.sh tests/install.sh
     actionlint
     taplo format --check
     nixfmt --check flake.nix
@@ -32,6 +32,6 @@ run *args:
 # Apply formatters without changing program behavior.
 fix:
     cargo fmt --all
-    shfmt -w install.sh tests/e2e.sh
+    shfmt -w install.sh tests/e2e.sh tests/install.sh
     taplo format
     nixfmt flake.nix

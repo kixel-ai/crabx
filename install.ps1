@@ -52,10 +52,23 @@
 	}
 	Write-Host "crabx install: installed $(Join-Path $dir 'crabx.exe')"
 
-	$path = [Environment]::GetEnvironmentVariable('Path', 'User')
+	# The registry's raw value keeps entries such as %JAVA_HOME%\bin expandable, and setting a user
+	# variable through .NET tells running programs, such as Explorer, that the environment changed.
+	$key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+	$path = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 	if (($path -split ';') -notcontains $dir) {
-		[Environment]::SetEnvironmentVariable('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), 'User')
+		$kind = if ($path) { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+		$key.SetValue('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), $kind)
+		[Environment]::SetEnvironmentVariable('CRABX_PATH_CHANGED', '1', 'User')
+		[Environment]::SetEnvironmentVariable('CRABX_PATH_CHANGED', $null, 'User')
 		$env:Path = "$env:Path;$dir"
 		Write-Host "crabx install: added $dir to your PATH; new terminals will find crabx"
+	}
+	$key.Close()
+
+	# Relink crate launchers to the new crabx.exe; 0.2.0 is the first version with `crabx install`.
+	if ([version]($version -replace '[-+].*', '') -ge [version]'0.2.0') {
+		& (Join-Path $dir 'crabx.exe') install
+		if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install failed with exit code $LASTEXITCODE" }
 	}
 }

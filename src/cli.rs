@@ -9,7 +9,8 @@ use std::ffi::OsString;
 #[command(
 	version,
 	trailing_var_arg = true,
-	override_usage = "crabx [OPTIONS] <CRATE[@VERSION]> [ARGS]..."
+	override_usage = "crabx [OPTIONS] <CRATE[@VERSION]> [ARGS]...",
+	after_help = "Commands:\n  crabx install [OPTIONS] [CRATE[@VERSION]]  Put crabx, or a launcher that runs CRATE, on PATH\n  crabx init                                 Write the release pipeline's caller workflow"
 )]
 pub struct Args {
 	/// Compile with cargo install instead of downloading a binary.
@@ -25,9 +26,6 @@ pub struct Args {
 	/// CRABX_MINIMUM_RELEASE_AGE] [default: 24h]
 	#[arg(long, value_name = "DURATION")]
 	pub minimum_release_age: Option<MinimumAge>,
-	/// Update the sparse-index version for the next invocation.
-	#[arg(long, hide = true)]
-	pub refresh: bool,
 	/// A crates.io crate, optionally pinned, followed by its arguments.
 	#[arg(value_name = "CRATE[@VERSION]", required = true, num_args = 1.., allow_hyphen_values = true)]
 	pub command: Vec<OsString>,
