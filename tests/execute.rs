@@ -106,13 +106,13 @@ fn legacy_cache_entries_never_run() {
 		fs::rename(&entry, &legacy).unwrap();
 		entry = legacy.clone();
 		let mut command = crabx(temp.path());
+		if mode == "quickinstall" {
+			command.arg("--allow-quickinstall");
+		}
 		command
 			.arg("fixture@1.2.3")
 			.env("PATH", "")
 			.env("HTTPS_PROXY", "http://127.0.0.1:1");
-		if mode == "quickinstall" {
-			command.arg("--allow-quickinstall");
-		}
 		let output = command.output().unwrap();
 		// It is not the entry's exit status, and the entry is left as it was.
 		assert_ne!(output.status.code(), Some(37), "{mode}");
