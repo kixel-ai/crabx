@@ -28,7 +28,8 @@ fn crabx(temp: &Path) -> Command {
 		.env_remove("CRABX_MINIMUM_RELEASE_AGE")
 		// Cargo sets CARGO for tests; the developer's CARGO_HOME would escape HOME.
 		.env_remove("CARGO")
-		.env_remove("CARGO_HOME");
+		.env_remove("CARGO_HOME")
+		.env_remove("CARGO_TARGET_DIR");
 	command
 }
 
@@ -527,6 +528,21 @@ fn builds_run_cargo_outside_the_checkout_with_the_callers_toolchain() {
 	let runs = checkout.runs();
 	assert_eq!(runs.len(), 2);
 	checkout.assert_isolated(&runs[1], "1.3.0", Path::new("/"));
+	// A cached build still runs, and its refresh still checks the index, without Cargo.
+	index(&checkout.root, &[("1.4.0", Some(48)), ("1.3.0", Some(72))]);
+	let output = output_after_refresh(checkout.crabx().args(["--build", "fixture"]).env("PATH", ""));
+	assert_eq!(output.status.code(), Some(37));
+	assert!(!String::from_utf8_lossy(&output.stderr).contains("background update"));
+	let failure: serde_json::Value =
+		serde_json::from_slice(&fs::read(checkout.root.join("failure.json")).unwrap()).unwrap();
+	assert_eq!(failure["version"], "1.4.0", "{failure}");
+	assert!(
+		failure["message"]
+			.as_str()
+			.unwrap()
+			.contains("found no \"cargo\" on PATH"),
+		"{failure}"
+	);
 }
 
 #[test]

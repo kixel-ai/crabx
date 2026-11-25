@@ -357,7 +357,7 @@ fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &s
 }
 
 fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
-	let mut command = cargo::Toolchain::new(&cargo::Caller::current()?)?.command();
+	let mut command = cargo::Toolchain::new(&cargo::Caller::current()?)?.command()?;
 	command
 		.arg("install")
 		.arg(name)

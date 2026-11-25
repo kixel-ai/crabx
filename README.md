@@ -46,11 +46,12 @@ crabx uses binstalk's release discovery, archive layouts, and signature verifica
 It never installs into `~/.cargo/bin`. Missing prebuilt assets are an error. Pass
 `--build` explicitly to run `cargo install --locked` into crabx's cache instead.
 Cargo then runs from the filesystem root, not the current directory, which may be an
-untrusted checkout, with `CARGO`, `CARGO_HOME`, and `PATH` resolved against the current
-directory first. Since Cargo reads `.cargo/config.toml` and `.cargo/config` in
-`CARGO_HOME`'s parent directories, a `CARGO_HOME` set inside the current git checkout, Cargo
-configuration in a parent it shares with the current directory, or Cargo or rustup
-configuration (`rust-toolchain.toml`) at the root is an error.
+untrusted checkout, with `CARGO`, `CARGO_HOME`, `CARGO_TARGET_DIR`, and `PATH` resolved
+against the current directory first. Since Cargo reads `.cargo/config.toml` and
+`.cargo/config` in `CARGO_HOME`'s parent directories, a `CARGO_HOME` set or a
+`CARGO_TARGET_DIR` inside the current git checkout (or its superproject), Cargo
+configuration in a parent `CARGO_HOME` shares with the current directory, or Cargo or
+rustup configuration (`rust-toolchain.toml`) at the root is an error.
 `--allow-quickinstall` permits cargo-quickinstall's third-party builds after the
 author's releases; those have a separate cache from the default trust policy.
 Quickinstall downloads require its minisign signature; a missing signature is an error.
