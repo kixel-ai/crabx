@@ -1,6 +1,6 @@
 #!/bin/sh
 # Install crabx's release binary:
-#   curl -fsSL https://crabx.kixel.ai/install.sh | sh
+#   curl -fsSL https://crabx.kixel.me/install.sh | sh
 # CRABX_VERSION picks a version instead of the newest stable one on crates.io, and
 # CRABX_INSTALL_DIR the directory instead of ~/.local/bin.
 set -eu

@@ -1,5 +1,5 @@
 # Install crabx's release binary:
-#   powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.ai/install.ps1 | iex"
+#   powershell -ExecutionPolicy Bypass -c "irm https://crabx.kixel.me/install.ps1 | iex"
 # CRABX_VERSION picks a version instead of the newest stable one on crates.io, and
 # CRABX_INSTALL_DIR the directory instead of ~\.local\bin.
 # A script block keeps its variables out of the session `iex` runs it in, and errors throw
@@ -56,6 +56,6 @@
 	if (($path -split ';') -notcontains $dir) {
 		[Environment]::SetEnvironmentVariable('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), 'User')
 		$env:Path = "$env:Path;$dir"
-		Write-Host "crabx install: added $dir to your PATH; restart other terminals to use it"
+		Write-Host "crabx install: added $dir to your PATH; new terminals will find crabx"
 	}
 }

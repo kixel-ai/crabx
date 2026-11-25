@@ -12,8 +12,8 @@ from moq's own releases.
 Non-goals: hosting a builder, building repos that haven't opted in, builds of `main` or
 any version not on crates.io, private repos, and replacing cargo-binstall or crates.io.
 
-What stays here once every child has merged: nothing. The docs page is [the site](/quest/m0/site/README.md),
-and the end-to-end check is `.github/workflows/e2e.yml`.
+What stays here once every child has merged: nothing. The docs page is the site at
+https://crabx.kixel.me, and the end-to-end check is `.github/workflows/e2e.yml`.
 
 ## Plan
 
