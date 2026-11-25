@@ -76,7 +76,8 @@ installed it from the registry, and `crabx --version` printed `crabx 0.1.0`.
   maintainer entering the 2FA codes. npm lists each as "Pending validation" until a
   publish, which [crabx 0.1.1](/quest/m0/release-0.1.1.md) is planned to be. If they expire
   first, wait until 0.1.1 is ready to publish, so a new two-day window isn't wasted, then
-  an agent deletes and re-adds them, on each package's settings page or with
+  an agent deletes and re-adds only the expired ones, leaving any a publish already
+  validated, on each package's settings page or with
   `npm trust github <package> --file release.yml --repo kixel-ai/crabx --env npm
   --allow-publish --yes` (npm 11.15.0 or later), and the maintainer gives a 2FA code; this
   needs the maintainer's npm session. Check that release.yml's npm job publishes the
