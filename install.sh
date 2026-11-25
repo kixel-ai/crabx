@@ -1,6 +1,6 @@
 #!/bin/sh
 # Install crabx's release binary:
-#   curl -fsSL https://crabx.kixel.me/install.sh | sh
+#   curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
 # CRABX_VERSION picks a version instead of the newest stable one on crates.io, and
 # CRABX_INSTALL_DIR the directory instead of ~/.local/bin.
 set -eu
@@ -40,14 +40,20 @@ target() {
 
 # The highest version on crates.io that is neither yanked nor a prerelease.
 newest() {
-    index=$(curl -fsSL https://index.crates.io/cr/ab/crabx) || fail "cannot read crabx's versions from crates.io"
+    index=$(curl --proto '=https' --tlsv1.2 -fsSL https://index.crates.io/cr/ab/crabx) || fail "cannot read crabx's versions from crates.io"
+    # Each line is one version's JSON; its keys may come in any order.
     echo "$index" |
-        sed -n 's/.*"vers":"\([^"]*\)".*"yanked":false.*/\1/p' |
-        awk -F '[.+]' '
-			{ core = $0; sub(/\+.*/, "", core) }
+        awk '
+			!/"yanked":false/ || !match($0, /"vers":"[^"]*"/) { next }
+			{
+				vers = substr($0, RSTART + 8, RLENGTH - 9)
+				core = vers
+				sub(/\+.*/, "", core)
+			}
 			core ~ /-/ { next }
-			!found || $1 > a || ($1 == a && ($2 > b || ($2 == b && $3 > c))) {
-				found = 1; a = $1 + 0; b = $2 + 0; c = $3 + 0; best = $0
+			{ split(core, p, ".") }
+			!found || p[1] + 0 > a || (p[1] + 0 == a && (p[2] + 0 > b || (p[2] + 0 == b && p[3] + 0 > c))) {
+				found = 1; a = p[1] + 0; b = p[2] + 0; c = p[3] + 0; best = vers
 			}
 			END { if (found) print best }'
 }
@@ -55,23 +61,41 @@ newest() {
 target=$(target)
 version=${CRABX_VERSION:-$(newest)}
 [ -n "$version" ] || fail "crates.io has no stable crabx release"
+# SemVer 2.0.0: no leading zeros in numeric parts, no empty identifiers. The case rejects a
+# newline first, which grep would match line by line.
 case $version in
     *[!0-9A-Za-z.+-]*) fail "invalid version $version" ;;
 esac
+num='(0|[1-9][0-9]*)'
+pre='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+build='[0-9A-Za-z-]+'
+echo "$version" | grep -Eq "^$num\\.$num\\.$num(-$pre(\\.$pre)*)?(\\+$build(\\.$build)*)?\$" ||
+    fail "invalid version $version; expected MAJOR.MINOR.PATCH as SemVer 2.0.0 defines it"
 dir=${CRABX_INSTALL_DIR:-$HOME/.local/bin}
 name=crabx-$target-v$version
 url=https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz
 
 temp=$(mktemp -d)
-trap 'rm -rf "$temp"' EXIT
+staged=
+# Remove what is staged on any exit, including an interrupt, but never the installed binary.
+cleanup() {
+    rm -rf "$temp"
+    [ -z "$staged" ] || rm -f "$staged"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 echo "crabx install: downloading crabx $version for $target" >&2
-curl -fsSL "$url" -o "$temp/crabx.tgz" || fail "cannot download $url; crabx $version's binaries may not be released yet"
+curl --proto '=https' --tlsv1.2 -fsSL "$url" -o "$temp/crabx.tgz" || fail "cannot download $url; crabx $version's binaries may not be released yet"
 tar -xzf "$temp/crabx.tgz" -C "$temp" "$name/crabx"
 mkdir -p "$dir"
-# Replace by rename, so a running crabx keeps its old file.
-mv "$temp/$name/crabx" "$dir/.crabx.$$"
-chmod 755 "$dir/.crabx.$$"
-mv "$dir/.crabx.$$" "$dir/crabx"
+# Stage in $dir, so the final rename stays on one filesystem and a running crabx keeps its old file.
+staged=$(mktemp "$dir/.crabx.XXXXXX")
+mv "$temp/$name/crabx" "$staged"
+chmod 755 "$staged"
+mv "$staged" "$dir/crabx"
+staged=
 echo "crabx install: installed $dir/crabx" >&2
 case ":$PATH:" in
     *":$dir:"*) ;;
