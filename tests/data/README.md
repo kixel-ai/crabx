@@ -12,3 +12,9 @@ The test changes its artifact digest, repository, signature, and transparency-lo
 independently and requires each change to fail verification.
 The GitHub fixture also checks the RFC 3161 signature, signed release tag, and
 rejection under the public-good trust domain.
+
+`pipeline-attestation.json` is the real SLSA provenance the crabx pipeline attested for
+crabx 0.1.0's archives from `main`, fetched from GitHub's attestations API for
+`sha256:ad37ee971cde7a8ada1a29ee78660e4adeaab0e9cd768aa1052dc9e60174d23e`
+(`crabx-x86_64-pc-windows-msvc-v0.1.0.tgz`), under the public-good trust root above.
+It checks the signed crate, version, and runner binding.

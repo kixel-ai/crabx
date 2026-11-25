@@ -444,7 +444,9 @@ impl super::Fetcher for GhCrateMeta {
 			}
 			self.receipt
 				.set(crate::fetchers::Receipt {
+					declared: self.data.repo.clone(),
 					repository: resolved.repo.clone(),
+					explicit: self.target_data.meta.pkg_url.is_some(),
 					url: resolved.url.clone(),
 					sha256: data_verifier.digest.finalize().into(),
 				})

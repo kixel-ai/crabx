@@ -10,7 +10,7 @@ and its unit tests omitted. Its license is also GPL-3.0-only.
 
 Local changes:
 
-- Expose the archive's SHA-256, resolved URL, and crate repository after downloading,
+- Expose the archive's SHA-256, resolved URL, the crate's declared and redirect-resolved repository, and whether `pkg-url` chose the URL, after downloading,
   hashing the same stream minisign checks. crabx checks attestations before installing.
 - Qualify internal paths under `crate::fetchers` and compile quickinstall
   unconditionally; crabx enables its use only with `--allow-quickinstall`.

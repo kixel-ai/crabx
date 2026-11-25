@@ -7,6 +7,7 @@ mod index;
 mod init;
 mod install;
 mod network;
+mod origin;
 #[path = "../vendor/binstalk-target.rs"]
 mod target;
 mod trust;

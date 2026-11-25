@@ -57,14 +57,20 @@ impl Record {
 impl Cache {
 	pub fn new(spec: &Spec, mode: &str) -> Result<Self> {
 		let base = directories::BaseDirs::new().context("cannot find the user's cache directory")?;
-		let root = base
-			.cache_dir()
+		Ok(Self::under(base.cache_dir(), spec, mode))
+	}
+
+	// Author and quickinstall entries moved to `v2` so none of 0.1's, which were never checked
+	// against 0.2's attestation policy, can run, and they stay as 0.1 wrote them. `build` keeps `v1`.
+	fn under(cache_dir: &Path, spec: &Spec, mode: &str) -> Self {
+		let epoch = if mode == "build" { "v1" } else { "v2" };
+		let root = cache_dir
 			.join("crabx")
-			.join("v1")
+			.join(epoch)
 			.join(binstalk::TARGET)
 			.join(mode)
 			.join(spec.name.to_ascii_lowercase());
-		Ok(Self { root })
+		Self { root }
 	}
 
 	pub fn version(&self, version: &Version) -> PathBuf {
@@ -229,6 +235,55 @@ mod tests {
 		for name in ["../evil", "C:evil", "a/b", "a\\b", ".", "..", ""] {
 			assert!(!valid_binary(name));
 		}
+	}
+
+	#[test]
+	fn verified_entries_never_share_a_directory_with_0_1s() {
+		let temp = tempfile::tempdir().unwrap();
+		let spec = Spec::parse("Tool@1.2.3").unwrap();
+		let version = Version::new(1, 2, 3);
+		// What 0.1 left behind: a complete, executable-looking entry nothing verified under 0.2.
+		let legacy = |mode: &str| {
+			temp.path()
+				.join("crabx/v1")
+				.join(binstalk::TARGET)
+				.join(mode)
+				.join("tool")
+		};
+		for mode in ["author", "quickinstall"] {
+			let entry = legacy(mode).join("1.2.3");
+			fs::create_dir_all(entry.join("bin")).unwrap();
+			fs::write(entry.join("bin/tool"), "unverified").unwrap();
+			fs::write(
+				entry.join("record.json"),
+				r#"{"version":"1.2.3","bins":["tool"],"source":"fixture"}"#,
+			)
+			.unwrap();
+			let cache = Cache::under(temp.path(), &spec, mode);
+			assert_eq!(
+				cache.root,
+				temp.path()
+					.join("crabx/v2")
+					.join(binstalk::TARGET)
+					.join(mode)
+					.join("tool")
+			);
+			assert!(cache.load(&version).unwrap().is_none());
+			assert!(cache.installed().unwrap().is_empty());
+			// Publishing beside it renames into a directory of its own and leaves the old one intact.
+			let _lock = cache.lock().unwrap();
+			let stage = cache.stage().unwrap();
+			fs::write(stage.path().join("record.json"), "{}").unwrap();
+			fs::rename(stage.path(), cache.version(&version)).unwrap();
+			assert!(entry.join("record.json").is_file() && entry.join("bin/tool").is_file());
+			assert!(!legacy(mode).join("lock").exists());
+		}
+		// `build` stays under `v1` until its own cutover.
+		let build = Cache::under(temp.path(), &spec, "build");
+		assert_eq!(
+			build.root,
+			temp.path().join("crabx/v1").join(binstalk::TARGET).join("build/tool")
+		);
 	}
 
 	#[test]
