@@ -179,7 +179,7 @@ jobs:
         shell: powershell
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
-          powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 https://crabx.kixel.me/install.ps1 | iex"
+          powershell -ExecutionPolicy Bypass -c "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; irm -MaximumRedirection 0 -ErrorAction Stop https://crabx.kixel.me/install.ps1 | iex"
           if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed: $LASTEXITCODE" }
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
 

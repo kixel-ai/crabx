@@ -1,8 +1,9 @@
 # Checks that install.ps1's Get-Https follows HTTPS redirects and refuses a downgrade to HTTP, bounds
-# redirect loops, and refuses a plain HTTP URL; the published launch command's `irm -MaximumRedirection 0`
-# fetches without a redirect and refuses any. Run it in Windows PowerShell 5.1, whose WebClient and
-# Invoke-WebRequest follow such a downgrade. A local TLS server stands in for the redirecting host;
-# -Pfx names a certificate to serve where New-SelfSignedCertificate does not exist.
+# redirect loops, and refuses a plain HTTP URL; and that the published launch command's
+# `irm -MaximumRedirection 0 -ErrorAction Stop` fetches without a redirect and refuses any, even one
+# whose body would run. Run it in Windows PowerShell 5.1, whose WebClient and Invoke-WebRequest follow
+# an HTTPS-to-HTTP redirect. A local TLS server stands in for the redirecting host; -Pfx names a
+# certificate to serve where New-SelfSignedCertificate does not exist.
 param([string]$Pfx)
 $ErrorActionPreference = 'Stop'
 
@@ -13,73 +14,90 @@ Invoke-Expression $function.Value
 
 # A scriptblock callback has no runspace on the thread TLS calls it from, so compile one.
 Add-Type 'public static class TrustAny { public static readonly System.Net.Security.RemoteCertificateValidationCallback Callback = (s, c, ch, e) => true; }'
-[Net.ServicePointManager]::ServerCertificateValidationCallback = [TrustAny]::Callback
-[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
-$cert = if ($Pfx) { New-Object Security.Cryptography.X509Certificates.X509Certificate2 $Pfx } else { New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\CurrentUser\My }
-$listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback), 0
-$listener.Start()
-$port = $listener.LocalEndpoint.Port
-
-$server = [powershell]::Create().AddScript({
-	param($listener, $cert, $port)
-	$routes = @{
-		'/ok' = '200 OK', $null
-		'/follow' = '302 Found', '/ok'
-		'/down' = '302 Found', "http://localhost:$port/ok"
-		'/loop' = '302 Found', '/loop'
-	}
-	while ($true) {
-		try { $client = $listener.AcceptTcpClient() } catch { break }
-		try {
-			$stream = New-Object Net.Security.SslStream $client.GetStream(), $false
-			$stream.AuthenticateAsServer($cert)
-			$head = ''
-			while (-not $head.EndsWith("`r`n`r`n")) {
-				$byte = $stream.ReadByte()
-				if ($byte -lt 0) { break }
-				$head += [char]$byte
-			}
-			$status, $location = $routes[($head -split ' ')[1]]
-			$body = if ($location) { '' } else { 'ok' }
-			$lines = "HTTP/1.1 $status", "Content-Length: $($body.Length)", 'Connection: close'
-			if ($location) { $lines += "Location: $location" }
-			$bytes = [Text.Encoding]::ASCII.GetBytes(($lines -join "`r`n") + "`r`n`r`n" + $body)
-			$stream.Write($bytes, 0, $bytes.Length)
-			$stream.Flush()
-		} catch {
-		} finally {
-			$client.Close()
-		}
-	}
-}).AddArgument($listener).AddArgument($cert).AddArgument($port)
-$pending = $server.BeginInvoke()
-
-function Expect-Failure([string]$path, [string]$pattern) {
+function Expect-Failure([string]$uri, [string]$pattern) {
 	try {
-		Get-Https $path "$file.failed"
+		Get-Https $uri "$file.failed"
 	} catch {
-		if ("$_" -notmatch $pattern) { throw "tests: $path failed with '$_', not /$pattern/" }
+		if ("$_" -notmatch $pattern) { throw "tests: $uri failed with '$_', not /$pattern/" }
 		return
 	}
-	throw "tests: $path was fetched, not refused"
+	throw "tests: $uri was fetched, not refused"
 }
 
+# The session outlives this script, so leave its TLS settings as they were.
+$validation = [Net.ServicePointManager]::ServerCertificateValidationCallback
+$protocol = [Net.ServicePointManager]::SecurityProtocol
+$errorAction = $ErrorActionPreference
+$listener = $server = $null
 $file = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
 try {
+	[Net.ServicePointManager]::ServerCertificateValidationCallback = [TrustAny]::Callback
+	[Net.ServicePointManager]::SecurityProtocol = $protocol -bor [Net.SecurityProtocolType]::Tls12
+	$cert = if ($Pfx) { New-Object Security.Cryptography.X509Certificates.X509Certificate2 $Pfx } else { New-SelfSignedCertificate -DnsName localhost -CertStoreLocation Cert:\CurrentUser\My }
+	$listener = New-Object Net.Sockets.TcpListener ([Net.IPAddress]::Loopback), 0
+	$listener.Start()
+	$port = $listener.LocalEndpoint.Port
+
+	$server = [powershell]::Create().AddScript({
+		param($listener, $cert, $port)
+		# A redirect's body would run if a launcher piped it to iex.
+		$ran = '$global:redirectBodyRan = $true'
+		$routes = @{
+			'/ok' = '200 OK', $null
+			'/follow' = '302 Found', '/ok'
+			'/down' = '302 Found', "http://localhost:$port/ok"
+			'/loop' = '302 Found', '/loop'
+		}
+		while ($true) {
+			try { $client = $listener.AcceptTcpClient() } catch { break }
+			try {
+				$stream = New-Object Net.Security.SslStream $client.GetStream(), $false
+				$stream.AuthenticateAsServer($cert)
+				$head = ''
+				while (-not $head.EndsWith("`r`n`r`n")) {
+					$byte = $stream.ReadByte()
+					if ($byte -lt 0) { break }
+					$head += [char]$byte
+				}
+				$status, $location = $routes[($head -split ' ')[1]]
+				$body = if ($location) { $ran } else { 'ok' }
+				$lines = "HTTP/1.1 $status", "Content-Length: $($body.Length)", 'Connection: close'
+				if ($location) { $lines += "Location: $location" }
+				$bytes = [Text.Encoding]::ASCII.GetBytes(($lines -join "`r`n") + "`r`n`r`n" + $body)
+				$stream.Write($bytes, 0, $bytes.Length)
+				$stream.Flush()
+			} catch {
+			} finally {
+				$client.Close()
+			}
+		}
+	}).AddArgument($listener).AddArgument($cert).AddArgument($port)
+	$pending = $server.BeginInvoke()
+
 	Get-Https "https://localhost:$port/follow" $file
 	if ((Get-Content -Raw $file) -ne 'ok') { throw 'tests: an HTTPS redirect was not followed' }
 	Expect-Failure "https://localhost:$port/down" 'non-HTTPS'
 	Expect-Failure "http://localhost:$port/ok" 'non-HTTPS'
 	Expect-Failure "https://localhost:$port/loop" 'too many redirects'
-	if ((irm -MaximumRedirection 0 "https://localhost:$port/ok") -ne 'ok') { throw 'tests: irm -MaximumRedirection 0 did not fetch' }
+
+	# PowerShell 7's Invoke-RestMethod ignores the callback above.
+	$trust = if ($PSVersionTable.PSVersion.Major -ge 6) { @{ SkipCertificateCheck = $true } } else { @{} }
+	if ((irm -MaximumRedirection 0 -ErrorAction Stop @trust "https://localhost:$port/ok") -ne 'ok') { throw 'tests: irm -MaximumRedirection 0 did not fetch' }
+	# The published command runs in a session whose error preference is the default.
+	$ErrorActionPreference = 'Continue'
 	foreach ($path in '/follow', '/down') {
-		try { irm -MaximumRedirection 0 "https://localhost:$port$path" | Out-Null } catch { continue }
-		throw "tests: irm -MaximumRedirection 0 followed $path"
+		$global:redirectBodyRan = $false
+		try { irm -MaximumRedirection 0 -ErrorAction Stop @trust "https://localhost:$port$path" | iex } catch { }
+		if ($global:redirectBodyRan) { throw "tests: the published irm ran the body of the redirect from $path" }
 	}
+	$ErrorActionPreference = $errorAction
 	Write-Host 'Get-Https follows HTTPS redirects and refuses HTTP ones'
 } finally {
-	$listener.Stop()
-	$server.Dispose()
+	$ErrorActionPreference = $errorAction
+	[Net.ServicePointManager]::ServerCertificateValidationCallback = $validation
+	[Net.ServicePointManager]::SecurityProtocol = $protocol
+	if ($listener) { $listener.Stop() }
+	if ($server) { $server.Dispose() }
 	Remove-Item -Force -ErrorAction SilentlyContinue $file, "$file.failed"
 }
