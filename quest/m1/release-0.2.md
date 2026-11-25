@@ -15,9 +15,8 @@ The version PR bumps `version` in `Cargo.toml`, and once it lands,
 `crabx install` is a new command and the delay changes which version an
 unpinned run picks.
 
-[0.1.1](/quest/m0/release-0.1.1.md) validates npm's trusted publishers first; if it missed
-their 2026-11-27 deadline, [first publish](/quest/m0/first-publish.md)'s `Waiting` says how
-to re-add them. After it lands, check that `release.yml`'s npm job published
+[0.1.1](/quest/m0/release-0.1.1.md) validates npm's trusted publishers first, so this
+release needs no npm setup. After it lands, check that `release.yml`'s npm job published
 0.2.0. Then run `npx @kixel/crabx@0.2.0 token-max@0.1.0 --version` and
 `npx @kixel/crabx@0.2.0 install token-max@0.1.0`, pinned so the 24h delay
 doesn't matter. Once token-max 0.1.0 is a day old, run the unpinned
