@@ -5,7 +5,7 @@ use crate::{
 		self, Data, Fetcher, GhCrateMeta, QuickInstall, SignaturePolicy, TargetArchOverride, TargetData,
 		TargetDataErased,
 	},
-	network,
+	network, origin,
 	target::TargetTriple,
 	trust,
 };
@@ -48,7 +48,7 @@ struct Package {
 	bins: Vec<(String, bool)>,
 }
 
-fn download_builder() -> reqwest::ClientBuilder {
+fn download_builder(redirects: &origin::Redirects) -> reqwest::ClientBuilder {
 	remote::Client::default_builder(
 		concat!("crabx/", env!("CARGO_PKG_VERSION")),
 		None,
@@ -56,12 +56,14 @@ fn download_builder() -> reqwest::ClientBuilder {
 		Default::default(),
 		&mut std::iter::empty(),
 	)
+	.redirect(redirects.policy())
 	.timeout(Duration::from_secs(300))
 	.read_timeout(Duration::from_secs(30))
 }
 
 async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) -> Result<Record> {
-	let client = remote::Client::from_builder(download_builder(), 1000.try_into()?, 100.try_into()?)?;
+	let redirects = origin::Redirects::default();
+	let client = remote::Client::from_builder(download_builder(&redirects), 1000.try_into()?, 100.try_into()?)?;
 	let req = VersionReq::parse(&format!("={version}"))?;
 	let (manifest, _) = binstalk::registry::Registry::default()
 		.fetch_crate_matched(client.clone(), &name.to_ascii_lowercase(), &req)
@@ -187,7 +189,7 @@ async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool) 
 		if !found {
 			continue;
 		}
-		return package.install(stage, &name, fetcher.as_ref()).await;
+		return package.install(stage, &name, fetcher.as_ref(), &redirects).await;
 	}
 	bail!(
 		"no usable prebuilt release for {}@{} on {}; use --build to compile explicitly",
@@ -210,15 +212,28 @@ fn disabled(target: &TargetDataErased, strategy: Strategy) -> bool {
 }
 
 impl Package {
-	async fn install(&self, stage: &Path, discovery_name: &str, fetcher: &dyn Fetcher) -> Result<Record> {
+	async fn install(
+		&self,
+		stage: &Path,
+		discovery_name: &str,
+		fetcher: &dyn Fetcher,
+		redirects: &origin::Redirects,
+	) -> Result<Record> {
 		let download = stage.join("download");
 		let extracted = fetcher.fetch_and_extract(&download).await?;
 		let source = if fetcher.is_third_party() {
 			"quickinstall".to_owned()
 		} else {
+			let receipt = fetcher.receipt().context("missing archive digest")?;
+			let origin = origin::resolve(receipt, redirects)?;
 			trust::verify(
-				fetcher.receipt().context("missing archive digest")?,
-				&self.version,
+				receipt,
+				trust::Subject {
+					name: &self.name,
+					version: &self.version,
+					repo: origin.repo,
+					asset: origin.asset,
+				},
 				stage,
 			)
 			.await?
@@ -595,7 +610,9 @@ mod tests {
 						.unwrap();
 					let _ = wait.await;
 				});
-				let mut builder = download_builder().https_only(false).no_proxy();
+				let mut builder = download_builder(&origin::Redirects::default())
+					.https_only(false)
+					.no_proxy();
 				if total {
 					// Isolate the total deadline from the shorter read deadline.
 					builder = builder.read_timeout(Duration::from_secs(600));

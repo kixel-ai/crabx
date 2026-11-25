@@ -42,8 +42,24 @@ fn one_attestation<'de, D: serde::Deserializer<'de>>(
 	deserializer.deserialize_seq(One)
 }
 
-pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Result<String> {
-	let Some(repo) = receipt.repository.as_deref().map(repository).transpose()?.flatten() else {
+/// The crate and release `receipt`'s archive must be attested as, and the GitHub repository
+/// `origin` found that attests it, if any.
+pub struct Subject<'a> {
+	pub name: &'a str,
+	pub version: &'a Version,
+	pub repo: Option<String>,
+	/// The release asset URL that names the attested tag.
+	pub asset: reqwest::Url,
+}
+
+pub async fn verify(receipt: &Receipt, subject: Subject<'_>, stage: &Path) -> Result<String> {
+	let Subject {
+		name,
+		version,
+		repo,
+		asset,
+	} = subject;
+	let Some(repo) = repo else {
 		return Ok("author release (repository does not support GitHub attestations)".into());
 	};
 	let digest = Sha256Hash::new(receipt.sha256).to_hex();
@@ -116,8 +132,9 @@ pub async fn verify(receipt: &Receipt, version: &Version, stage: &Path) -> Resul
 			Artifact {
 				digest: &digest,
 				repo: &repo,
+				name,
 				version,
-				asset: &receipt.url,
+				asset: &asset,
 			},
 		)?;
 		verified += 1;
@@ -200,6 +217,8 @@ fn next_page(link: Option<&str>, current: &reqwest::Url, repo: &str, digest: &st
 struct Artifact<'a> {
 	digest: &'a str,
 	repo: &'a str,
+	/// The crate the archive must have been built from.
+	name: &'a str,
 	version: &'a Version,
 	asset: &'a reqwest::Url,
 }
@@ -237,10 +256,14 @@ fn verify_bundle(verifier: &Verifier, bundle: &Bundle, artifact: Artifact<'_>) -
 		return artifact.tag(&release.tag);
 	}
 	let cert = result.certificate().context("attestation has no certificate")?;
-	artifact.authorize(
+	let signer = artifact.authorize(
 		&cert.ci_claims,
 		cert.identity.as_ref().map(|identity| identity.as_str()),
-	)
+	)?;
+	if signer == Signer::Pipeline {
+		artifact.check_build(statement(bundle)?)?;
+	}
+	Ok(())
 }
 
 #[derive(Deserialize)]
@@ -249,7 +272,8 @@ struct Release {
 	tag: String,
 }
 
-fn release(bundle: &Bundle) -> Result<Option<Release>> {
+/// The in-toto statement a DSSE bundle signs, if it is one.
+fn payload(bundle: &Bundle) -> Result<Option<&[u8]>> {
 	let SignatureContent::DsseEnvelope(envelope) = &bundle.content else {
 		return Ok(None);
 	};
@@ -257,12 +281,23 @@ fn release(bundle: &Bundle) -> Result<Option<Release>> {
 		envelope.payload_type == "application/vnd.in-toto+json",
 		"unsupported attestation payload type"
 	);
+	Ok(Some(envelope.payload.as_bytes()))
+}
+
+fn statement(bundle: &Bundle) -> Result<&[u8]> {
+	payload(bundle)?.context("pipeline attestation is not an in-toto statement")
+}
+
+fn release(bundle: &Bundle) -> Result<Option<Release>> {
+	let Some(payload) = payload(bundle)? else {
+		return Ok(None);
+	};
 	#[derive(Deserialize)]
 	struct Header {
 		#[serde(rename = "predicateType")]
 		kind: String,
 	}
-	let header: Header = serde_json::from_slice(envelope.payload.as_bytes())?;
+	let header: Header = serde_json::from_slice(payload)?;
 	if header.kind != "https://in-toto.io/attestation/release/v0.2" {
 		return Ok(None);
 	}
@@ -270,34 +305,22 @@ fn release(bundle: &Bundle) -> Result<Option<Release>> {
 	struct Statement {
 		predicate: Release,
 	}
-	let statement: Statement = serde_json::from_slice(envelope.payload.as_bytes())?;
+	let statement: Statement = serde_json::from_slice(payload)?;
 	Ok(Some(statement.predicate))
-}
-
-fn repository(value: &str) -> Result<Option<String>> {
-	let url = reqwest::Url::parse(value).context("invalid crate repository URL")?;
-	if !matches!(url.host_str(), Some("github.com" | "www.github.com")) {
-		return Ok(None);
-	}
-	ensure!(
-		matches!(url.scheme(), "https" | "http") && url.username().is_empty() && url.password().is_none(),
-		"invalid GitHub repository URL"
-	);
-	let mut segments = url.path_segments().context("repository has no path")?;
-	let owner = segments.next().context("repository has no owner")?;
-	let repo = segments
-		.next()
-		.context("repository has no name")?
-		.trim_end_matches(".git");
-	ensure!(!owner.is_empty() && !repo.is_empty(), "repository has no owner or name");
-	Ok(Some(format!("{owner}/{repo}").to_ascii_lowercase()))
 }
 
 /// The reusable workflow whose builds crabx trusts for any repository that calls it.
 const PIPELINE_SIGNER: &str = "https://github.com/kixel-ai/crabx/.github/workflows/crabx.yml@";
 
+/// Who signed an attestation: the crate's own workflow, or crabx's pipeline.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Signer {
+	Author,
+	Pipeline,
+}
+
 impl Artifact<'_> {
-	fn authorize(&self, claims: &sigstore_verify::crypto::FulcioCiClaims, identity: Option<&str>) -> Result<()> {
+	fn authorize(&self, claims: &sigstore_verify::crypto::FulcioCiClaims, identity: Option<&str>) -> Result<Signer> {
 		let repo = self.repo;
 		let expected = format!("https://github.com/{repo}");
 		let matches = match claims.source_repository_uri.as_deref() {
@@ -315,12 +338,14 @@ impl Artifact<'_> {
 			.or(identity)
 			.context("attestation lacks a workflow identity")?;
 		let signer = signer.to_ascii_lowercase();
-		let own = signer.starts_with(&format!("{expected}/.github/workflows/"));
-		let pipeline = signer.starts_with(PIPELINE_SIGNER);
-		ensure!(
-			own || pipeline,
-			"attestation signer is neither the author's workflow nor the crabx pipeline"
-		);
+		// The pipeline's signed statement is stricter, so it wins where both match.
+		let signer = if signer.starts_with(PIPELINE_SIGNER) {
+			Signer::Pipeline
+		} else if signer.starts_with(&format!("{expected}/.github/workflows/")) {
+			Signer::Author
+		} else {
+			bail!("attestation signer is neither the author's workflow nor the crabx pipeline");
+		};
 		let reference = claims
 			.source_repository_ref
 			.as_deref()
@@ -328,9 +353,77 @@ impl Artifact<'_> {
 			.context("attestation lacks a source ref")?;
 		if let Some(tag) = reference.strip_prefix("refs/tags/") {
 			self.tag(tag)?;
-		} else if !reference.starts_with("refs/heads/") {
+		} else if reference.starts_with("refs/heads/") {
+			// A branch names no release, and binstalk's templates may reuse one asset name across
+			// versions, so only the pipeline's signed crate and version can bind a branch build.
+			ensure!(
+				signer == Signer::Pipeline,
+				"attestation from branch {reference:?} is not signed by the crabx pipeline"
+			);
+		} else {
 			bail!("attestation was issued from an untrusted ref {reference:?}");
 		}
+		Ok(signer)
+	}
+
+	/// Require the pipeline's signed SLSA statement to name this crate and version, built on a
+	/// GitHub-hosted runner, since its one signature covers every archive of the run.
+	fn check_build(&self, statement: &[u8]) -> Result<()> {
+		#[derive(Deserialize)]
+		struct Statement {
+			#[serde(rename = "predicateType")]
+			kind: String,
+			predicate: Predicate,
+		}
+		#[derive(Deserialize)]
+		struct Predicate {
+			#[serde(rename = "buildDefinition")]
+			build: Build,
+		}
+		#[derive(Deserialize)]
+		struct Build {
+			#[serde(rename = "externalParameters")]
+			external: External,
+			#[serde(rename = "internalParameters")]
+			internal: Internal,
+		}
+		#[derive(Deserialize)]
+		struct External {
+			#[serde(rename = "crate")]
+			name: String,
+			version: String,
+		}
+		#[derive(Deserialize)]
+		struct Internal {
+			github: Github,
+		}
+		#[derive(Deserialize)]
+		struct Github {
+			runner_environment: String,
+		}
+		let statement: Statement = serde_json::from_slice(statement).context("malformed pipeline attestation")?;
+		ensure!(
+			statement.kind == "https://slsa.dev/provenance/v1",
+			"pipeline attestation is not SLSA provenance"
+		);
+		let Build { external, internal } = statement.predicate.build;
+		ensure!(
+			external.name.eq_ignore_ascii_case(self.name),
+			"pipeline attestation is for crate {:?}, not {:?}",
+			external.name,
+			self.name
+		);
+		ensure!(
+			Version::parse(&external.version).is_ok_and(|version| &version == self.version),
+			"pipeline attestation is for version {:?}, not {}",
+			external.version,
+			self.version
+		);
+		ensure!(
+			internal.github.runner_environment == "github-hosted",
+			"pipeline attestation was built on a {:?} runner, not a GitHub-hosted one",
+			internal.github.runner_environment
+		);
 		Ok(())
 	}
 
@@ -440,6 +533,7 @@ mod tests {
 		let artifact = Artifact {
 			digest: "76f1fe8593bf227cca2c089e3c16dc95014a8d3e89c5dd220530469ca043c428",
 			repo: "jdx/communique",
+			name: "tool",
 			version: &version,
 			asset: &asset,
 		};
@@ -495,24 +589,7 @@ mod tests {
 	}
 
 	#[test]
-	fn repositories_are_canonical_and_identity_is_bound() {
-		assert_eq!(
-			repository("https://github.com/moq-dev/moq.git").unwrap().as_deref(),
-			Some("moq-dev/moq")
-		);
-		assert_eq!(
-			repository("https://github.com/moq-dev/moq/tree/main/rs/moq-cli")
-				.unwrap()
-				.as_deref(),
-			Some("moq-dev/moq")
-		);
-		assert!(repository("https://gitlab.com/a/b").unwrap().is_none());
-		assert!(repository("https://github.com/a").is_err());
-		assert_eq!(repository("http://github.com/a/b").unwrap().as_deref(), Some("a/b"));
-		assert_eq!(
-			repository("https://www.github.com/a/b").unwrap().as_deref(),
-			Some("a/b")
-		);
+	fn identity_is_bound_to_the_repository() {
 		let mut claims = sigstore_verify::crypto::FulcioCiClaims::default();
 		claims.source_repository_uri = Some("https://github.com/a/b".into());
 		claims.build_signer_uri = Some("https://github.com/a/b/.github/workflows/release.yml@refs/tags/v1.2.3".into());
@@ -523,6 +600,7 @@ mod tests {
 			Artifact {
 				digest: "",
 				repo: "a/b",
+				name: "tool",
 				version: &version,
 				asset: &asset
 			}
@@ -533,6 +611,7 @@ mod tests {
 			Artifact {
 				digest: "",
 				repo: "a/evil",
+				name: "tool",
 				version: &version,
 				asset: &asset
 			}
@@ -544,6 +623,7 @@ mod tests {
 			Artifact {
 				digest: "",
 				repo: "a/b",
+				name: "tool",
 				version: &version,
 				asset: &asset
 			}
@@ -562,6 +642,7 @@ mod tests {
 		let artifact = Artifact {
 			digest: "",
 			repo: "a/b",
+			name: "tool",
 			version: &version,
 			asset: &asset,
 		};
@@ -600,6 +681,7 @@ mod tests {
 		let artifact = Artifact {
 			digest: "",
 			repo: "a/b",
+			name: "tool",
 			version: &version,
 			asset: &asset,
 		};
@@ -625,83 +707,200 @@ mod tests {
 	fn real_attestation_rejects_changed_digest_identity_signature_and_log() {
 		let root = TrustedRoot::from_json(include_str!("../tests/data/trusted-root.json")).unwrap();
 		let verifier = Verifier::new(&root).unwrap();
-		let json = include_str!("../tests/data/attestation.json");
+		let json = include_str!("../tests/data/pipeline-attestation.json");
 		let bundle = Bundle::from_json(json).unwrap();
-		let digest = "54303491a8418fbed24344b513546182c29b43bf282ceb433af65e2299f9271f";
+		// crabx 0.1.0's Windows archive, signed from a branch by the pipeline.
+		let digest = "ad37ee971cde7a8ada1a29ee78660e4adeaab0e9cd768aa1052dc9e60174d23e";
+		let version = Version::new(0, 1, 0);
+		let url = reqwest::Url::parse(
+			"https://github.com/kixel-ai/crabx/releases/download/crabx-v0.1.0/crabx-x86_64-pc-windows-msvc-v0.1.0.tgz",
+		)
+		.unwrap();
+		let artifact = Artifact {
+			digest,
+			repo: "kixel-ai/crabx",
+			name: "crabx",
+			version: &version,
+			asset: &url,
+		};
+		verify_bundle(&verifier, &bundle, artifact).unwrap();
+		let zero = "00".repeat(32);
+		for wrong in [
+			Artifact {
+				digest: &zero,
+				..artifact
+			},
+			Artifact {
+				repo: "evil/fork",
+				..artifact
+			},
+		] {
+			assert!(verify_bundle(&verifier, &bundle, wrong).is_err());
+		}
+		let mut tampered: serde_json::Value = serde_json::from_str(json).unwrap();
+		tampered["dsseEnvelope"]["signatures"][0]["sig"] = "AAAA".into();
+		let tampered = Bundle::from_json(&serde_json::to_string(&tampered).unwrap()).unwrap();
+		assert!(verify_bundle(&verifier, &tampered, artifact).is_err());
+		let mut tampered: serde_json::Value = serde_json::from_str(json).unwrap();
+		tampered["verificationMaterial"]["tlogEntries"][0]["integratedTime"] = "1".into();
+		let tampered = Bundle::from_json(&serde_json::to_string(&tampered).unwrap()).unwrap();
+		assert!(verify_bundle(&verifier, &tampered, artifact).is_err());
+	}
+
+	#[test]
+	fn a_valid_author_attestation_from_a_branch_is_refused() {
+		let root = TrustedRoot::from_json(include_str!("../tests/data/trusted-root.json")).unwrap();
+		let verifier = Verifier::new(&root).unwrap();
+		let bundle = Bundle::from_json(include_str!("../tests/data/attestation.json")).unwrap();
 		let version = Version::new(1, 2, 3);
 		let url =
 			reqwest::Url::parse("https://github.com/prefix-dev/sigstore-example/releases/download/v1.2.3/asset.tgz")
 				.unwrap();
+		// The signature, log, and repository are valid; only a pipeline's signed version binds a branch build.
+		let error = verify_bundle(
+			&verifier,
+			&bundle,
+			Artifact {
+				digest: "54303491a8418fbed24344b513546182c29b43bf282ceb433af65e2299f9271f",
+				repo: "prefix-dev/sigstore-example",
+				name: "sigstore-example",
+				version: &version,
+				asset: &url,
+			},
+		)
+		.unwrap_err();
 		assert!(
-			verify_bundle(
-				&verifier,
-				&bundle,
-				Artifact {
-					digest,
-					repo: "prefix-dev/sigstore-example",
-					version: &version,
-					asset: &url
-				}
-			)
-			.is_ok()
+			error.to_string().contains("not signed by the crabx pipeline"),
+			"{error}"
 		);
-		assert!(
-			verify_bundle(
-				&verifier,
-				&bundle,
-				Artifact {
-					digest: &"00".repeat(32),
-					repo: "prefix-dev/sigstore-example",
-					version: &version,
-					asset: &url
-				}
-			)
-			.is_err()
-		);
-		assert!(
-			verify_bundle(
-				&verifier,
-				&bundle,
-				Artifact {
-					digest,
-					repo: "evil/fork",
-					version: &version,
-					asset: &url
-				}
-			)
-			.is_err()
-		);
-		let mut tampered: serde_json::Value = serde_json::from_str(json).unwrap();
-		tampered["dsseEnvelope"]["signatures"][0]["sig"] = "AAAA".into();
-		let tampered = Bundle::from_json(&serde_json::to_string(&tampered).unwrap()).unwrap();
-		assert!(
-			verify_bundle(
-				&verifier,
-				&tampered,
-				Artifact {
-					digest,
-					repo: "prefix-dev/sigstore-example",
-					version: &version,
-					asset: &url
-				}
-			)
-			.is_err()
-		);
-		let mut tampered: serde_json::Value = serde_json::from_str(json).unwrap();
-		tampered["verificationMaterial"]["tlogEntries"][0]["integratedTime"] = "1".into();
-		let tampered = Bundle::from_json(&serde_json::to_string(&tampered).unwrap()).unwrap();
-		assert!(
-			verify_bundle(
-				&verifier,
-				&tampered,
-				Artifact {
-					digest,
-					repo: "prefix-dev/sigstore-example",
-					version: &version,
-					asset: &url
-				}
-			)
-			.is_err()
-		);
+	}
+
+	#[test]
+	fn branch_builds_are_bound_only_by_the_pipelines_signed_crate_and_version() {
+		let mut claims = sigstore_verify::crypto::FulcioCiClaims::default();
+		claims.source_repository_uri = Some("https://github.com/a/b".into());
+		claims.source_repository_ref = Some("refs/heads/main".into());
+		// binstalk's templates may reuse one asset name for every release tag.
+		let asset = reqwest::Url::parse("https://github.com/a/b/releases/download/v9.9.9/tool-x86_64.tgz").unwrap();
+		let version = Version::new(1, 2, 3);
+		let artifact = Artifact {
+			digest: "",
+			repo: "a/b",
+			name: "tool",
+			version: &version,
+			asset: &asset,
+		};
+		claims.build_signer_uri = Some("https://github.com/a/b/.github/workflows/release.yml@refs/heads/main".into());
+		let error = artifact.authorize(&claims, None).unwrap_err().to_string();
+		assert!(error.contains("not signed by the crabx pipeline"), "{error}");
+		claims.build_signer_uri = Some(format!("{PIPELINE_SIGNER}refs/tags/pipeline-v1.0.0"));
+		assert_eq!(artifact.authorize(&claims, None).unwrap(), Signer::Pipeline);
+		// A tag still has to match the release, whoever signed it.
+		claims.source_repository_ref = Some("refs/tags/v9.9.9".into());
+		assert_eq!(artifact.authorize(&claims, None).unwrap(), Signer::Pipeline);
+		claims.source_repository_ref = Some("refs/tags/v1.0.0".into());
+		assert!(artifact.authorize(&claims, None).is_err());
+		claims.build_signer_uri = Some("https://github.com/a/b/.github/workflows/release.yml@refs/tags/v9.9.9".into());
+		claims.source_repository_ref = Some("refs/tags/v9.9.9".into());
+		assert_eq!(artifact.authorize(&claims, None).unwrap(), Signer::Author);
+	}
+
+	#[test]
+	fn the_pipelines_signed_statement_names_the_crate_version_and_runner() {
+		let bundle = Bundle::from_json(include_str!("../tests/data/pipeline-attestation.json")).unwrap();
+		let real = statement(&bundle).unwrap();
+		let version = Version::new(0, 1, 0);
+		let asset =
+			reqwest::Url::parse("https://github.com/kixel-ai/crabx/releases/download/crabx-v0.1.0/a.tgz").unwrap();
+		let artifact = Artifact {
+			digest: "",
+			repo: "kixel-ai/crabx",
+			name: "crabx",
+			version: &version,
+			asset: &asset,
+		};
+		artifact.check_build(real).unwrap();
+		let with = |edit: &dyn Fn(&mut serde_json::Value)| {
+			let mut value: serde_json::Value = serde_json::from_slice(real).unwrap();
+			edit(&mut value);
+			serde_json::to_vec(&value).unwrap()
+		};
+		let external = |key: &'static str, to: &'static str| {
+			with(&move |v| v["predicate"]["buildDefinition"]["externalParameters"][key] = to.into())
+		};
+		artifact.check_build(&external("crate", "CrabX")).unwrap();
+		for (changed, expect) in [
+			(external("crate", "other"), "for crate"),
+			(external("crate", "crabx-evil"), "for crate"),
+			(external("version", "0.1.1"), "for version"),
+			(external("version", "0.1.0+build"), "for version"),
+			(external("version", "not a version"), "for version"),
+			(
+				with(&|v| {
+					v["predicate"]["buildDefinition"]["internalParameters"]["github"]["runner_environment"] =
+						"self-hosted".into()
+				}),
+				"not a GitHub-hosted one",
+			),
+			(
+				with(&|v| {
+					v["predicate"]["buildDefinition"]["internalParameters"]["github"]["runner_environment"] =
+						serde_json::Value::Null
+				}),
+				"malformed",
+			),
+			(
+				with(&|v| v["predicate"]["buildDefinition"]["internalParameters"] = serde_json::json!({})),
+				"malformed",
+			),
+			(
+				with(&|v| v["predicateType"] = "https://example.com/other".into()),
+				"not SLSA provenance",
+			),
+			(with(&|v| v["predicate"] = serde_json::json!({})), "malformed"),
+			(b"[]".to_vec(), "malformed"),
+		] {
+			let error = format!("{:#}", artifact.check_build(&changed).unwrap_err());
+			assert!(error.contains(expect), "{error}");
+		}
+	}
+
+	#[test]
+	fn a_real_pipeline_attestation_binds_the_crate_and_version() {
+		let root = TrustedRoot::from_json(include_str!("../tests/data/trusted-root.json")).unwrap();
+		let verifier = Verifier::new(&root).unwrap();
+		let bundle = Bundle::from_json(include_str!("../tests/data/pipeline-attestation.json")).unwrap();
+		// crabx 0.1.0's Windows archive, signed from a branch by the pipeline.
+		let digest = "ad37ee971cde7a8ada1a29ee78660e4adeaab0e9cd768aa1052dc9e60174d23e";
+		let version = Version::new(0, 1, 0);
+		let asset = reqwest::Url::parse(
+			"https://github.com/kixel-ai/crabx/releases/download/crabx-v0.1.0/crabx-x86_64-pc-windows-msvc-v0.1.0.tgz",
+		)
+		.unwrap();
+		let artifact = Artifact {
+			digest,
+			repo: "kixel-ai/crabx",
+			name: "crabx",
+			version: &version,
+			asset: &asset,
+		};
+		verify_bundle(&verifier, &bundle, artifact).unwrap();
+		let other = Version::new(0, 1, 1);
+		for wrong in [
+			Artifact {
+				name: "other",
+				..artifact
+			},
+			Artifact {
+				version: &other,
+				..artifact
+			},
+			Artifact {
+				repo: "kixel-ai/other",
+				..artifact
+			},
+		] {
+			assert!(verify_bundle(&verifier, &bundle, wrong).is_err());
+		}
 	}
 }

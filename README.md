@@ -91,18 +91,29 @@ missing; `--build` compiles those crates.
 
 Workflow certificates must name the crate's repository and either that repository's
 workflow or crabx's reusable pipeline, `.github/workflows/crabx.yml` in this repository. Source refs must be tags or branches, excluding
-pull-request refs. A tag must match the asset's release tag or version. Branch-triggered
-builds are accepted so the pipeline can backfill published crates. GitHub release
+pull-request refs. A tag must match the asset's release tag or version. A branch names no
+release, so only the pipeline's builds may come from one, which lets it backfill published crates:
+crabx requires the pipeline's signed provenance to name the requested crate and version and a
+GitHub-hosted runner. An author's own workflow signing from a branch is an error. GitHub release
 attestations must carry GitHub's release-service identity and sign the crate's
-repository and matching release tag. The verified result
+repository and matching release tag.
+
+crabx queries attestations for one repository, the crate's `repository` after any redirect, so
+every other GitHub origin must agree with it, or it is an error. A `pkg-url`, initial archive URL,
+or redirect that downloads from a different GitHub repository fails, as does a GitHub release
+CDN URL (`release-assets.githubusercontent.com`) that no `github.com` release URL redirected
+to directly. A crate whose `repository` is not on GitHub, or redirects into it, may serve releases
+from GitHub only when its own `pkg-url` names that repository itself, not through `{ repo }`. A crate with no `repository` whose
+`pkg-url` names a GitHub release is attested in that repository. The verified result
 stays with the cached entry; a pinned, cached invocation makes no network request and
 requires neither Cargo nor GitHub's CLI.
 
 Caches live in the operating system's user cache directory, under
-`crabx/v1/<host>/<trust-policy>/<crate>/<version>`. Entries are staged, verified, and
+`crabx/v2/<host>/<trust-policy>/<crate>/<version>` (`--build` entries are still under `crabx/v1`). Entries are staged, verified, and
 published atomically under a per-crate lock. An incomplete or corrupt entry fails
 loudly. Build and quickinstall entries cannot satisfy the default author's-release
-policy.
+policy. 0.1's `author` and `quickinstall` entries under `crabx/v1` are never run, since
+0.2 has not verified them, and stay on disk untouched.
 The next uncached installation removes abandoned `install-*` staging directories
 under that lock. Malformed index or refresh state (`index.json`, `failure.json`) also
 fails with its path; delete that file to reset update tracking. Pinned invocations do
