@@ -26,7 +26,7 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    uses: kixel-ai/crabx/.github/workflows/crabx.yml@6905ead4b9c6a98ebbaa6517a148a95fc1197429 # pipeline-v1.0.0
+    uses: kixel-ai/crabx/.github/workflows/crabx.yml@b206ab0a5a2ca06abfc4672d1a61b182b51fc6f3 # pipeline-v1.0.1
 ```
 
 `crabx init` fills in origin's default branch and pins this release's immutable
@@ -52,9 +52,22 @@ that run. GitHub retains only one pending publisher per tag across runs; a newer
 run backfills the same missing archives if it supersedes an older pending job.
 No release is made latest merely because it was backfilled.
 
-Build jobs have read-only tokens and no OIDC permission. Only the publishing job
-attests the downloaded archives and writes releases; it never runs crate code.
-Callers must grant its three permissions. Public GitHub.com repositories are the
+Build jobs have read-only tokens and no OIDC permission, and Cargo runs without
+the runner's artifact, cache, and step-output variables. Each build job uploads
+only its target's archive, under a name it cannot overwrite. Linux build tools
+install only from hash-pinned wheels in `requirements.txt`. Only the publishing
+job attests and writes releases; it never runs crate code. It reads the run's
+unfiltered artifact and job lists and takes a target's archive only when exactly
+one artifact holds that target's name and the latest attempt of its build job
+succeeded. It downloads each artifact ZIP unextracted, checks its SHA-256 against
+the artifact's digest, and stages the archive only when the ZIP holds that single
+regular file. Re-running failed jobs reuses earlier attempts' archives, while
+re-running a build that already uploaded holds back its crate until a fresh run.
+Artifacts are scoped to the whole run, not to a job, so a build that subverts its
+runner could replace another target's artifact in the same run; every crate of a
+run comes from the same repository. Callers must grant the job's three
+permissions; reading the run's artifacts and jobs needs no `actions`
+permission in a public repository. Public GitHub.com repositories are the
 supported boundary; private repositories and GitHub Enterprise Server are not.
 
 The pipeline runs only on `push`, `schedule`, and `workflow_dispatch`; any other
@@ -66,15 +79,18 @@ versions published during that pause. A backfill exceeding GitHub's 256 matrix
 jobs fails explicitly.
 
 `.github/workflows/crabx-test.yml` builds the two-binary fixture on all six targets
-with read-only permissions on PRs that change the pipeline. A manual dispatch also attests the archives
+with read-only permissions on PRs that change the pipeline, then runs the
+publishing job's artifact checks on them, still read-only. A manual dispatch also attests the archives
 without creating tags or releases, and bypasses crates.io discovery. Local tests
 exercise discovery, archiving, and publishing with recorded API and Cargo
 responses; the fixture workflow builds the real archives on all six targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
 archive with `gh attestation verify <archive> -R kixel-ai/crabx --signer-workflow
-kixel-ai/crabx/.github/workflows/crabx.yml`. After tagging, point
-`src/binaries.yml` and the caller above at the tag's commit; a crabx test
-keeps the two identical.
+kixel-ai/crabx/.github/workflows/crabx.yml`. Then point `src/binaries.yml`,
+`.github/workflows/release.yml`, and the caller above at that commit and merge, so
+the `Release` run on the merge push exercises the pin. Once it succeeds, push an
+annotated tag (`git tag -a`) on the pinned commit, last because it is
+irreversible; a crabx test keeps the first and last pins identical.
 
 References: [binstall archive defaults](https://github.com/cargo-bins/cargo-binstall/blob/main/SUPPORT.md),
 [reusable job identity](https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context),
