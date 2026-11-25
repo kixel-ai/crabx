@@ -22,6 +22,10 @@ struct Launcher {
 	path: PathBuf,
 	/// crabx's options, then the `CRATE[@VERSION]` the launcher runs.
 	args: Vec<String>,
+	/// On Windows, the SHA-256 of the crabx.exe the launcher links to, which tells it apart from a
+	/// program installed over it later.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	sha256: Option<String>,
 }
 
 /// What a launcher's path holds.
@@ -112,7 +116,7 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 			dir.display()
 		);
 	}
-	let recorded = existing.as_ref().is_some_and(|existing| existing.path == path);
+	let recorded = existing.as_ref().filter(|existing| existing.path == path);
 	ensure!(
 		found(&path, recorded)? != Found::Other,
 		"{} exists and is not crabx's launcher; delete it, or set CRABX_INSTALL_DIR to install elsewhere",
@@ -127,6 +131,7 @@ pub fn install(args: Vec<OsString>) -> Result<()> {
 	let launcher = Launcher {
 		path,
 		args: args.iter().map(arg).collect::<Result<_>>()?,
+		sha256: linked(&dir)?,
 	};
 	launcher.save(&name)?;
 	link(&dir, &launcher.path)?;
@@ -213,13 +218,14 @@ impl Launcher {
 	}
 
 	fn found(&self) -> Result<Found> {
-		found(&self.path, true)
+		found(&self.path, Some(self))
 	}
 }
 
-/// What `path` holds. A Unix launcher is a symlink to `crabx` beside it. A Windows one is a hard
-/// link that a replaced crabx.exe no longer shares, so only its record identifies it.
-fn found(path: &Path, recorded: bool) -> Result<Found> {
+/// What `path` holds, given the record naming it. A Unix launcher is a symlink to `crabx` beside
+/// it. A Windows one is a hard link that a replaced crabx.exe no longer shares, so it is the file
+/// whose SHA-256 its record holds.
+fn found(path: &Path, record: Option<&Launcher>) -> Result<Found> {
 	let metadata = match fs::symlink_metadata(path) {
 		Ok(metadata) => metadata,
 		Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Found::Missing),
@@ -228,9 +234,34 @@ fn found(path: &Path, recorded: bool) -> Result<Found> {
 	let launcher = if cfg!(unix) {
 		metadata.is_symlink() && fs::read_link(path)? == Path::new("crabx")
 	} else {
-		recorded && metadata.is_file()
+		match record.and_then(|record| record.sha256.as_deref()) {
+			Some(expected) => metadata.is_file() && sha256(path)? == expected,
+			None => false,
+		}
 	};
 	Ok(if launcher { Found::Launcher } else { Found::Other })
+}
+
+/// On Windows, the SHA-256 of the crabx.exe in `dir`, which its launchers' records hold.
+fn linked(dir: &Path) -> Result<Option<String>> {
+	cfg!(windows)
+		.then(|| sha256(&dir.join(format!("crabx{EXE}"))))
+		.transpose()
+}
+
+fn sha256(path: &Path) -> Result<String> {
+	use sha2::Digest;
+	use std::io::Read;
+	let mut file = fs::File::open(path).with_context(|| format!("read {}", path.display()))?;
+	let mut hasher = sha2::Sha256::new();
+	let mut buffer = vec![0; 1 << 16];
+	loop {
+		match file.read(&mut buffer)? {
+			0 => break,
+			read => hasher.update(&buffer[..read]),
+		}
+	}
+	Ok(hasher.finalize().iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// Put this crabx in `dir`, then bring every launcher there up to date with it.
@@ -249,15 +280,21 @@ fn install_self(dir: &Path) -> Result<()> {
 		replace(copy, &target)?;
 		eprintln!("crabx install: installed {}", target.display());
 	}
-	for (name, launcher) in Launcher::all()? {
+	let sha256 = linked(dir)?;
+	for (name, mut launcher) in Launcher::all()? {
 		if launcher.path.parent() != Some(dir) {
 			continue;
 		}
 		match launcher.found()? {
 			// Deleting a launcher uninstalls it.
 			Found::Missing => Launcher::forget(&name)?,
-			// A Windows launcher is a link to the crabx.exe it was made from.
-			Found::Launcher if cfg!(windows) => link(dir, &launcher.path)?,
+			// A Windows launcher is a link to the crabx.exe it was made from. Saved after
+			// linking, so a failure leaves a record that refuses the file rather than claims it.
+			Found::Launcher if cfg!(windows) => {
+				link(dir, &launcher.path)?;
+				launcher.sha256 = sha256.clone();
+				launcher.save(&name)?;
+			}
 			Found::Launcher => {}
 			Found::Other => {
 				eprintln!(
@@ -333,12 +370,18 @@ fn on_path(dir: &Path) -> Result<()> {
 	}
 	#[cfg(windows)]
 	{
-		// .NET writes the user's Path and tells running programs, such as Explorer, it changed.
+		// As install.ps1 does: the registry's raw value keeps entries such as %JAVA_HOME%\bin
+		// expandable, and setting a user variable through .NET tells running programs, such as
+		// Explorer, that the environment changed.
 		const SCRIPT: &str = "$ErrorActionPreference = 'Stop'
 $dir = $env:CRABX_PATH_DIR
-$path = [Environment]::GetEnvironmentVariable('Path', 'User')
+$key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey('Environment')
+$path = $key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 if (($path -split ';') -notcontains $dir) {
-	[Environment]::SetEnvironmentVariable('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), 'User')
+	$kind = if ($path) { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+	$key.SetValue('Path', ((@($path, $dir) | Where-Object { $_ }) -join ';'), $kind)
+	[Environment]::SetEnvironmentVariable('CRABX_PATH_CHANGED', '1', 'User')
+	[Environment]::SetEnvironmentVariable('CRABX_PATH_CHANGED', $null, 'User')
 	'added'
 }";
 		let output = std::process::Command::new("powershell")
@@ -357,4 +400,18 @@ if (($path -split ';') -notcontains $dir) {
 		}
 	}
 	Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn sha256_is_lowercase_hex() {
+		let temp = tempfile::tempdir().unwrap();
+		let path = temp.path().join("abc");
+		std::fs::write(&path, "abc").unwrap();
+		assert_eq!(
+			super::sha256(&path).unwrap(),
+			"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+		);
+	}
 }
