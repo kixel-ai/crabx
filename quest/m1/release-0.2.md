@@ -44,5 +44,4 @@ max.kixel.me, waits on this release.
 
 ## Related
 
-- [First publish](/quest/m0/first-publish.md) - validated npm's trusted publishers with 0.1.1, so this release needs no npm setup
 - [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`
