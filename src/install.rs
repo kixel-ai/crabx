@@ -455,7 +455,7 @@ fn elf_interpreter(path: &Path) -> Result<bool> {
 	ensure!(header[5] == 1, "binary is not little-endian ELF");
 	let u16_at = |b: &[u8], at: usize| u16::from_le_bytes([b[at], b[at + 1]]) as u64;
 	let u32_at = |b: &[u8], at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
-	let (offset, size, count, minimum) = match header[4] {
+	let (offset, size, count, entry_size) = match header[4] {
 		1 => (
 			u32_at(&header, 0x1c) as u64,
 			u16_at(&header, 0x2a),
@@ -471,9 +471,10 @@ fn elf_interpreter(path: &Path) -> Result<bool> {
 		_ => bail!("binary has an unknown ELF class"),
 	};
 	ensure!(
-		size >= minimum && offset.checked_add(size * count).is_some_and(|end| end <= length),
+		size == entry_size && count > 0 && offset.checked_add(size * count).is_some_and(|end| end <= length),
 		"binary has malformed or truncated ELF program headers"
 	);
+	// Linux's loader requires exactly its own entry size and at least one entry.
 	let mut entry = [0; 4];
 	for index in 0..count {
 		file.seek(SeekFrom::Start(offset + index * size))?;
@@ -582,10 +583,14 @@ mod tests {
 		// Truncated anywhere inside the program-header table, even past the last type field.
 		fs::write(&path, &elf(1)[..64 + 56 + 4]).unwrap();
 		assert!(elf_interpreter(&path).is_err());
-		let mut short = elf(1);
-		short[0x36..0x38].copy_from_slice(&4u16.to_le_bytes());
-		fs::write(&path, short).unwrap();
-		assert!(elf_interpreter(&path).is_err());
+		// Linux loads only its own entry size, and only a non-empty table.
+		for (at, value) in [(0x36, 4u16), (0x36, 64), (0x38, 0)] {
+			let mut malformed = elf(1);
+			malformed.resize(64 + 2 * 64, 0);
+			malformed[at..at + 2].copy_from_slice(&value.to_le_bytes());
+			fs::write(&path, malformed).unwrap();
+			assert!(elf_interpreter(&path).is_err());
+		}
 		fs::write(&path, b"#!/bin/sh\n").unwrap();
 		assert!(elf_interpreter(&path).is_err());
 		if cfg!(all(target_os = "linux", target_env = "gnu")) {

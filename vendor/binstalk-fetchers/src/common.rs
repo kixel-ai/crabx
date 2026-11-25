@@ -24,8 +24,8 @@ use crate::fetchers::FetchError;
 static WARN_RATE_LIMIT_ONCE: Once = Once::new();
 static TOKEN_REJECTED: AtomicBool = AtomicBool::new(false);
 
-/// Whether GitHub's API rejected the token during discovery. The resolver swallows a candidate's
-/// error, so the caller checks this to fail by name, only when discovery actually used GitHub.
+/// Whether GitHub's API rejected the token during discovery. The caller checks this before the
+/// resolver's error to fail by name, only when discovery actually used GitHub.
 pub fn token_rejected() -> bool {
 	TOKEN_REJECTED.load(Relaxed)
 }
@@ -101,15 +101,19 @@ pub(super) async fn does_url_exist(client: Client, gh_api_client: GhApiClient, u
 	remote_exists(&client, url.clone()).await
 }
 
-/// Whether `url` serves a file: 404 is a miss, and any other failure is an error rather than
-/// a miss, so a failed lookup never falls through to a less preferred candidate.
+/// Whether `url` serves a file. A host that refuses the tokenless client (403) or never or
+/// no longer has it (404, 410) is a miss; any other failure is an error rather than a miss, so
+/// a transient failure never falls through to a less preferred candidate.
 pub(super) async fn remote_exists(client: &Client, url: Url) -> Result<bool, FetchError> {
 	let response = Box::pin(client.get(url).send(false)).await?;
-	if response.status() == StatusCode::NOT_FOUND {
+	if matches!(
+		response.status(),
+		StatusCode::NOT_FOUND | StatusCode::FORBIDDEN | StatusCode::GONE
+	) {
 		return Ok(false);
 	}
-	response.error_for_status()?;
-	Ok(true)
+	// A redirect left unfollowed, such as one without a Location, serves no archive.
+	Ok(response.error_for_status()?.status().is_success())
 }
 
 #[derive(Debug)]

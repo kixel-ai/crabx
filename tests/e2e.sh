@@ -103,9 +103,14 @@ token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if [ -n "$token" ]; then echo "e2e: token's GitHub API quota: $(quota -H @- <<<"Authorization: Bearer $token")"; fi
 cases online
 # A crate shipping both runs its gnu build, and a musl-only one its static musl build.
+interpreter() {
+    local headers
+    headers=$(readelf -lW "$cache/author/$1/bin/${1%/*}") || fail "readelf failed on $1"
+    [[ $headers == *"program interpreter"* ]]
+}
 case $target in *-linux-gnu)
-    grep -qa /ld-linux "$cache/author/fnox/1.50.0/bin/fnox" || fail "fnox@1.50.0 installed a build without glibc's loader"
-    if grep -qa /ld-linux "$cache/author/token-max/0.0.1/bin/token-max"; then fail "token-max@0.0.1 installed a dynamic build"; fi
+    interpreter fnox/1.50.0 || fail "fnox@1.50.0 installed a static build, not its gnu one"
+    if interpreter token-max/0.0.1; then fail "token-max@0.0.1 installed a dynamic build"; fi
     ;;
 esac
 
