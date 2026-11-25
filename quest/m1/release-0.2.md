@@ -33,7 +33,12 @@ max.kixel.me, waits on this release.
 - [Musl fallback](/quest/m0/musl-fallback.md) - runs crates with only musl Linux builds, such as token-max
 - [`crabx install`](/quest/m1/install.md) - the install command max.kixel.me offers
 - [Release-age delay](/quest/m1/release-age.md) - the default the maintainer wants in place before more people run crabx
+- [Pipeline v1.0.1](/quest/m1/pipeline-v1.0.1.md) - pins the hardened release pipeline in `crabx init`
+- [Attestation binding](/quest/m1/attestation-binding.md) - binds branch-ref attestations to the crate, version, and runner
+- [Verify before extract](/quest/m1/verify-before-extract.md) - verifies signatures and attestations before extracting and bounds network reads
+- [Build cwd isolation](/quest/m1/build-cwd.md) - isolates working directory for `--build` and background `--refresh`
 
 ## Related
 
 - [First publish](/quest/m0/first-publish.md) - holds the npm trust step this release needs
+- [Attestation ratchet](/quest/m1/attestation-ratchet.md) - TOFU downgrade protection and `--require-attestation`
