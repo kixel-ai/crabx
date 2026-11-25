@@ -150,8 +150,10 @@ def missing(version):
     return [name for name in package_names() if fetch(f"{NPM}/{name}/{stored}") is None]
 
 
-# npm install's request for a package's versions. The CDN caches the answer per Accept header.
-INSTALL_ACCEPT = "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*"
+# The Accept headers npm install asks for a package's versions with: the full document, as npm 11
+# resolves a new dependency, and the abbreviated one, as it reads a lockfile and older npm resolves.
+# The CDN caches each separately.
+INSTALL_ACCEPTS = ("application/json", "application/vnd.npm.install-v1+json; q=1.0, application/json; q=0.8, */*")
 # How long npm may take to serve a published version. It said "a few minutes" while crabx
 # 0.2.0's packument took 76 seconds to list it.
 SERVE_BOUND = 600
@@ -159,14 +161,14 @@ SERVE_POLL = 10
 
 
 def unserved(version):
-    """The packages whose versions, as npm install fetches them, lack version."""
+    """The packages whose versions, in either form npm install fetches, lack version."""
     stored = version.split("+", 1)[0]
-    names = []
-    for name in package_names():
-        body = fetch(f"{NPM}/{name.replace('/', '%2f')}", INSTALL_ACCEPT)
-        if body is None or stored not in json.loads(body).get("versions", {}):
-            names.append(name)
-    return names
+
+    def served(name, accept):
+        body = fetch(f"{NPM}/{name.replace('/', '%2f')}", accept)
+        return body is not None and stored in json.loads(body).get("versions", {})
+
+    return [name for name in package_names() if not all(served(name, accept) for accept in INSTALL_ACCEPTS)]
 
 
 def wait_served(version):

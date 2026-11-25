@@ -141,16 +141,16 @@ class WaitServed(unittest.TestCase):
     """publish returns only once npm install resolves every package at the version."""
 
     def wait(self, listed_after):
-        """Run wait_served("0.2.0+build-5"), where each package lists 0.2.0 from its time in listed_after on."""
+        """Run wait_served("0.2.0+build-5"), where each package, in each form, lists 0.2.0 from its time in listed_after on."""
         clock = Clock()
         polls = []
 
         def fetch(url, accept="*/*"):
-            self.assertEqual(accept, r.INSTALL_ACCEPT)
+            self.assertIn(accept, r.INSTALL_ACCEPTS)
             name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
             polls.append(name)
             versions = {"0.1.0": {}}
-            if clock.now >= listed_after.get(name, 0):
+            if clock.now >= listed_after.get((name, accept), listed_after.get(name, 0)):
                 versions["0.2.0"] = {}
             return json.dumps({"name": name, "versions": versions}).encode()
 
@@ -159,12 +159,17 @@ class WaitServed(unittest.TestCase):
         return clock.now, polls
 
     def test_returns_at_once_when_npm_serves_every_package(self):
-        self.assertEqual(self.wait({}), (0, r.package_names()))
+        now, polls = self.wait({})
+        self.assertEqual(now, 0)
+        self.assertEqual(sorted(set(polls)), sorted(r.package_names()))
 
     def test_waits_until_every_package_is_served(self):
-        now, polls = self.wait({"@kixel/crabx": 25, "@kixel/crabx-win32-arm64": 5})
-        self.assertEqual(now, 30)
-        self.assertEqual(len(polls), 4 * len(r.package_names()))
+        self.assertEqual(self.wait({"@kixel/crabx": 25, "@kixel/crabx-win32-arm64": 5})[0], 30)
+
+    def test_waits_for_each_form_npm_install_fetches(self):
+        # The full and abbreviated documents are cached apart, so one can lag the other.
+        for accept in r.INSTALL_ACCEPTS:
+            self.assertEqual(self.wait({("@kixel/crabx-linux-x64-gnu", accept): 15})[0], 20)
 
     def test_fails_naming_the_packages_still_missing_at_the_bound(self):
         with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
