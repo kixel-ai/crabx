@@ -280,6 +280,9 @@ class Pipeline(unittest.TestCase):
         # skipping a crate restricted to another registry and a fixture the workspace doesn't list.
         # A non-ASCII path, which Git quotes unless asked not to, plans as written.
         self.assertEqual(self.unpublished(), [{**{k: v for k, v in ITEM.items() if k != "tag"}, "path": "cli-é"}])
+        # Any other Cargo failure could drop a crate from the gate, so it fails the plan.
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.unpublished(outside={"bad": '[package]\nname="demo-bad"\nversion="0.1.0"\nedition="1999"\n[workspace]\n'})
         # A gate with nothing to build would pass vacuously, so it fails instead.
         with self.assertRaisesRegex(ValueError, "nothing to build"):
             self.unpublished({"lib": '[package]\nname="demo-lib"\nversion="0.1.0"\n[lib]\npath="lib.rs"\n'})

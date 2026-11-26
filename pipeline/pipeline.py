@@ -207,12 +207,14 @@ def unpublished():
         if manifest in seen or not releasable(tomllib.loads(manifest.read_text()).get("package", {})):
             continue
         # Cargo resolves inherited fields, such as `version.workspace = true`, without building anything.
-        try:
-            metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent), env=env))
-        except subprocess.CalledProcessError:
-            # Cargo can't publish a manifest it can't load, such as a fixture inside a workspace that doesn't list it.
-            print(f"{manifest.relative_to(root).as_posix()}: Cargo can't load it, so it can't be published", file=sys.stderr)
+        cargo = subprocess.run(["cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest)], cwd=manifest.parent, env=env, capture_output=True, text=True)
+        sys.stderr.write(cargo.stderr)
+        # Cargo can't publish a fixture inside a workspace that doesn't list it either. Any other
+        # failure could drop a crate from the gate, so it fails the plan.
+        if cargo.returncode and "believes it's in a workspace when it's not" in cargo.stderr:
             continue
+        cargo.check_returncode()
+        metadata = json.loads(cargo.stdout)
         for package in metadata["packages"]:
             path = Path(package["manifest_path"]).resolve()
             if path in seen or path not in tracked:
