@@ -87,6 +87,8 @@ cases() {
     # crabx's pipeline, the signer every crabx-built crate carries.
     pinned "$1" crabx@0.1.0 author "GitHub attestations (1) sha256:"
     pinned "$1" hyperfine@2.0.0 author "author release (no published attestation)\""
+    # Ships only a static musl Linux build on x86_64, so glibc Linux falls back to it. aarch64 has a gnu archive.
+    case $target in x86_64-unknown-linux-gnu) pinned "$1" ripgrep@14.1.1 author "author release (no published attestation)\"" ;; esac
     # Its author attaches no binaries; quickinstall builds it for every target crabx runs on.
     pinned "$1" cargo-expand@1.0.126 quickinstall quickinstall --allow-quickinstall
 }
@@ -109,14 +111,20 @@ token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
 if [ -n "$token" ]; then echo "e2e: token's GitHub API quota: $(quota -H @- <<<"Authorization: Bearer $token")"; fi
 cases online
 unpinned online
-# A crate shipping both musl and gnu builds runs its gnu build.
+# interpreter CRATE/VERSION EXECUTABLE: whether the cached executable is dynamically linked.
 interpreter() {
     local headers
-    headers=$(LC_ALL=C readelf -lW "$cache/author/$1/bin/${1%/*}") || fail "readelf failed on $1"
+    headers=$(LC_ALL=C readelf -lW "$cache/author/$1/bin/$2") || fail "readelf failed on $1"
     [[ $headers == *"program interpreter"* ]]
 }
+# A crate shipping both musl and gnu builds runs its gnu build.
 case $target in *-linux-gnu)
-    interpreter fnox/1.50.0 || fail "fnox@1.50.0 installed a static build, not its gnu one"
+    interpreter fnox/1.50.0 fnox || fail "fnox@1.50.0 installed a static build, not its gnu one"
+    ;;
+esac
+# A crate shipping only a musl build runs it, static.
+case $target in x86_64-unknown-linux-gnu)
+    if interpreter ripgrep/14.1.1 rg; then fail "ripgrep@14.1.1 installed a dynamic build, not its static musl one"; fi
     ;;
 esac
 
@@ -133,8 +141,8 @@ refused() {
 # policy, which compiles instead and so fails here, with no toolchain.
 refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $target; compiling it with cargo install"
 refused cargo-expand@1.0.126 "compiling needs cargo and a Rust toolchain"
-# Ships only static musl Linux builds, which glibc Linux falls back to, but its only attestation is the
-# author's own workflow signing from a branch, which names no release.
+# Its only attestation is the author's own workflow signing from a branch, which names no release, even
+# though glibc Linux could fall back to its static musl builds.
 case $target in *-linux-gnu) refused token-max@0.0.1 "attestation from branch \"refs/heads/main\" is not signed by the crabx pipeline" ;; esac
 # A token GitHub rejects fails by name instead of being resent for every candidate URL.
 refused bat@0.26.1 "GitHub rejected the GH_TOKEN or GITHUB_TOKEN token; replace or unset it" GH_TOKEN=ghp_e2e_rejected_token
