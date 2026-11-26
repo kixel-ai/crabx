@@ -84,6 +84,7 @@ fn ctrl_c_waits_for_the_crate_and_exits_with_its_code() {
 	let _cleanup = Cleanup(vec![
 		host.join("author").join(&name),
 		host.join("attested").join(format!("{name}.lock")),
+		host.join("attested").join(format!("{name}.migrated")),
 	]);
 	let entry = host.join("author").join(&name).join("1.2.3");
 	fs::create_dir_all(entry.join("bin")).unwrap();
