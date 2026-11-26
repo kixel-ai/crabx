@@ -24,6 +24,7 @@ republishes them.
 
 ## Waiting
 
-- Maintainer: open https://crabx.kixel.me on desktop and phone, run its install line, and
-  post about crabx where they choose; an agent can't speak for the maintainer in public.
-  Done when the maintainer says so.
+- Maintainer (action): open https://crabx.kixel.me on desktop and phone, run its install
+  line, and post about crabx where they choose. An agent can smoke-test the site but can't
+  speak for the maintainer in public, so no automation covers the post. Done when the
+  maintainer says they posted.
