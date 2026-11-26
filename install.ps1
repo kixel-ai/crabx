@@ -7,11 +7,12 @@
 # CRABX_INSTALL_DIR the directory instead of ~\.local\bin.
 # A script block keeps its variables out of the session `iex` runs it in, and errors throw
 # rather than exit, which would close that session.
+param([Parameter(ValueFromRemainingArguments)][string[]]$Crates)
 & {
 	$ErrorActionPreference = 'Stop'
 	$ProgressPreference = 'SilentlyContinue'
 	# The crates to install: the arguments, then CRABX_INSTALL's words.
-	$specs = @($args) + @($env:CRABX_INSTALL -split '\s+' | Where-Object { $_ })
+	$specs = @(if ($null -ne $Crates) { $Crates }) + @($env:CRABX_INSTALL -split '\s+' | Where-Object { $_ })
 	# crabx install checks each spec itself; this keeps one from becoming an option of crabx install,
 	# or a quote from changing how Windows PowerShell 5.1 passes it.
 	foreach ($spec in $specs) {
@@ -78,6 +79,10 @@
 		$build = '[0-9A-Za-z-]+'
 		if ($version -notmatch "^$num\.$num\.$num(-$pre(\.$pre)*)?(\+$build(\.$build)*)?\z") { throw "crabx install: invalid version $version; expected MAJOR.MINOR.PATCH as SemVer 2.0.0 defines it" }
 
+		# 0.2.0 is the first version with `crabx install`; before it, `crabx install CRATE` would run a crate.
+		$old = [version]($version -replace '[-+].*', '') -lt [version]'0.2.0'
+		if ($old -and $specs) { throw "crabx install: crabx $version cannot install crates; use 0.2.0 or later" }
+
 		$dir = if ($env:CRABX_INSTALL_DIR) { $env:CRABX_INSTALL_DIR } else { Join-Path $HOME '.local\bin' }
 		$name = "crabx-$target-v$version"
 		$url = "https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz"
@@ -111,18 +116,15 @@
 	}
 	$key.Close()
 
-	# 0.2.0 is the first version with `crabx install`; before it, `crabx install CRATE` would run a crate.
-	if ([version]($version -replace '[-+].*', '') -lt [version]'0.2.0') {
-		if ($specs) { throw "crabx install: crabx $version cannot install crates; use 0.2.0 or later" }
-		return
-	}
+	if ($old) { return }
 	# Relink crate launchers to the new crabx.exe.
 	$crabx = Join-Path $dir 'crabx.exe'
 	& $crabx install
 	if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install failed with exit code $LASTEXITCODE" }
 	# One crate at a time, as `crabx install` takes one, stopping at the first failure.
 	foreach ($spec in $specs) {
+		Write-Host "crabx install: crabx install $spec"
 		& $crabx install $spec
 		if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install $spec failed with exit code $LASTEXITCODE" }
 	}
-} @args
+}
