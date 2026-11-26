@@ -20,10 +20,8 @@ The cost falls on users without a token: a shared address's 60 unauthenticated r
 Decided 2026-11-24 (maintainer, /quest-run): ✅ keep this quest (rejected: drop it).
 
 Decided 2026-11-24 (maintainer, /quest-run): ✅ offer the fork's resolver fix (`vendor/README.md`'s "Wait for resolver channel capacity": upstream's `try_send` lets a queued error displace the one success) upstream to cargo-bins/cargo-binstall as a PR with its test, so the next import drops it (rejected: keep it local).
-First read that repository's AI contribution policy; if it bans LLM-written PRs, stop and tell the maintainer instead of drafting one.
-Draft the PR and get the maintainer's approval before posting anything.
+Decided 2026-11-25 (maintainer, /quest-run): ✅ post the drafted PR as written (rejected: edit it first; keep the fix local). It is [cargo-bins/cargo-binstall#2854](https://github.com/cargo-bins/cargo-binstall/pull/2854); the import drops the local "Wait for resolver channel capacity" change if the release holds it, and keeps it otherwise.
 
 ## Waiting
 
 - cargo-bins/cargo-binstall: a binstalk-fetchers release after 0.10.54 that holds #2808 and #2813; check `https://crates.io/api/v1/crates/binstalk-fetchers` for its `max_stable_version`
-- Maintainer: approve the upstream resolver-fix PR before it is posted, since an agent may not post to cargo-bins/cargo-binstall without approval; check that the drafted PR's text and test were approved, then post it
