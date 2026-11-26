@@ -1,12 +1,26 @@
 # Install crabx's release binary:
 #   powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
+# Crates to install afterwards with `crabx install` are arguments, when a script block runs it:
+#   & ([scriptblock]::Create((curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String))) CRATE...
+# or, for the line above, space-separated in CRABX_INSTALL.
 # CRABX_VERSION picks a version instead of the newest stable one on crates.io, and
 # CRABX_INSTALL_DIR the directory instead of ~\.local\bin.
 # A script block keeps its variables out of the session `iex` runs it in, and errors throw
 # rather than exit, which would close that session.
+# The empty param block gives iex its own $args, so it can't take the caller's, and adds no common
+# parameters, which would consume an option-like argument such as -Verbose before it is checked.
+param()
 & {
 	$ErrorActionPreference = 'Stop'
 	$ProgressPreference = 'SilentlyContinue'
+	# The crates to install: the arguments, then CRABX_INSTALL's words.
+	$specs = @($args) + @($env:CRABX_INSTALL -split '\s+' | Where-Object { $_ })
+	# crabx install checks each spec itself; this keeps one from becoming an option of crabx install,
+	# or a quote from changing how Windows PowerShell 5.1 passes it.
+	foreach ($spec in $specs) {
+		if ("$spec" -cnotmatch '\A[A-Za-z][0-9A-Za-z_.@+-]*\z') { throw "crabx install: invalid crate '$spec'; expected CRATE or CRATE@VERSION" }
+	}
+
 	# Windows PowerShell 5.1 may not offer TLS 1.2 by default.
 	[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 
@@ -67,6 +81,10 @@
 		$build = '[0-9A-Za-z-]+'
 		if ($version -notmatch "^$num\.$num\.$num(-$pre(\.$pre)*)?(\+$build(\.$build)*)?\z") { throw "crabx install: invalid version $version; expected MAJOR.MINOR.PATCH as SemVer 2.0.0 defines it" }
 
+		# 0.2.0 is the first version with `crabx install`; before it, `crabx install CRATE` would run a crate.
+		$old = [version]($version -replace '[-+].*', '') -lt [version]'0.2.0'
+		if ($old -and $specs) { throw "crabx install: crabx $version cannot install crates; use 0.2.0 or later" }
+
 		$dir = if ($env:CRABX_INSTALL_DIR) { $env:CRABX_INSTALL_DIR } else { Join-Path $HOME '.local\bin' }
 		$name = "crabx-$target-v$version"
 		$url = "https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz"
@@ -100,9 +118,15 @@
 	}
 	$key.Close()
 
-	# Relink crate launchers to the new crabx.exe; 0.2.0 is the first version with `crabx install`.
-	if ([version]($version -replace '[-+].*', '') -ge [version]'0.2.0') {
-		& (Join-Path $dir 'crabx.exe') install
-		if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install failed with exit code $LASTEXITCODE" }
+	if ($old) { return }
+	# Relink crate launchers to the new crabx.exe.
+	$crabx = Join-Path $dir 'crabx.exe'
+	& $crabx install
+	if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install failed with exit code $LASTEXITCODE" }
+	# One crate at a time, as `crabx install` takes one, stopping at the first failure.
+	foreach ($spec in $specs) {
+		Write-Host "crabx install: crabx install $spec"
+		& $crabx install $spec
+		if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install $spec failed with exit code $LASTEXITCODE" }
 	}
-}
+} @args
