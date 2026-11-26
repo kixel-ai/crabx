@@ -516,7 +516,6 @@ esac""")
         self.assertFalse((self.temp / "curl.log").exists(), "an invalid crate reached the network")
         # CRABX_INSTALL's words are never globbed into file names.
         (self.temp / "x").write_text("")
-        (self.temp / "x").write_text("")
         result = self.install(CRABX_INSTALL="*", cwd=self.temp)
         self.assertIn("invalid crate '*'", result.stderr)
 
