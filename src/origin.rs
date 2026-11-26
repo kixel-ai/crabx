@@ -469,18 +469,19 @@ mod tests {
 						let path = String::from_utf8_lossy(&request);
 						let path = path.split(' ').nth(1).unwrap();
 						let response = match path.strip_prefix("/hop") {
-							// /hopN redirects to /hopN+1 forever, /end serves a file.
+							// /hopN redirects to /hopN+1 forever, /end serves a file. Each connection closes after
+							// one response, so say so: otherwise the client may reuse it after the close and get a reset.
 							Some(n) => format!(
-								"HTTP/1.1 302 Found\r\nLocation: /hop{}\r\nContent-Length: 0\r\n\r\n",
+								"HTTP/1.1 302 Found\r\nLocation: /hop{}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
 								n.parse::<u32>().unwrap() + 1
 							),
 							None if path == "/start" => {
-								"HTTP/1.1 302 Found\r\nLocation: /middle\r\nContent-Length: 0\r\n\r\n".into()
+								"HTTP/1.1 302 Found\r\nLocation: /middle\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()
 							}
 							None if path == "/middle" => {
-								"HTTP/1.1 302 Found\r\nLocation: /end\r\nContent-Length: 0\r\n\r\n".into()
+								"HTTP/1.1 302 Found\r\nLocation: /end\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into()
 							}
-							None => "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".into(),
+							None => "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
 						};
 						let _ = stream.write_all(response.as_bytes()).await;
 					});
