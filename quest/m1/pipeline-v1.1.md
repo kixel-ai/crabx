@@ -11,7 +11,7 @@ so consumers (kixel-ai/token-max first) can adopt it.
 
 Follow the release steps at the end of `pipeline/README.md`: dispatch the pipeline on the commit
 to tag, verify each archive, all eight targets included, with `gh attestation verify`, move the
-three pins and merge, let the merge's `Release` run exercise the pin, then push the tag last.
+four pins and merge, let the merge's `Release` run exercise the pin, then push the tag last.
 Adding targets and the `crabx-dry-run.yml` workflow is backward compatible for callers, so this is a minor release.
 
 kixel-ai/token-max's move to the pipeline waits on this tag; its quest checks for it with

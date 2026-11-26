@@ -35,9 +35,11 @@ jobs:
             value=$(jq -er --arg field "$field" '.[$field] | select(type == "string" and length > 0)' <<< "$JOB")
             echo "$field=$value" >> "$GITHUB_OUTPUT"
           done
+      # Cargo reads workspace members in submodules, as the build's checkout fetches them.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          submodules: recursive
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: ${{ steps.identity.outputs.workflow_repository }}

@@ -108,7 +108,7 @@ responses; the fixture workflow builds the real archives on all six targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
 archive with `gh attestation verify <archive> -R kixel-ai/crabx --signer-workflow
 kixel-ai/crabx/.github/workflows/crabx.yml`. Then point `src/binaries.yml`,
-`.github/workflows/release.yml`, and the caller above at that commit and merge, so
+`.github/workflows/release.yml`, the caller above, and the dry-run example at that commit and merge, so
 the `Release` run on the merge push exercises the pin. Once it succeeds, push an
 annotated tag (`git tag -a`) on the pinned commit, last because it is
 irreversible; a crabx test keeps the first and last pins identical.
