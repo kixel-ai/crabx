@@ -28,6 +28,17 @@ The installers fetch the newest stable release into `~/.local/bin`; set `CRABX_V
 `Path`, which terminals opened afterwards pick up; `install.sh` only says when it is missing from `PATH`,
 so add it there yourself before running `crabx` by name. Prebuilt crabx covers x86_64 and arm64 on glibc
 Linux (2.28 or later), macOS, and Windows; elsewhere, such as on musl, use `cargo install`.
+Crates follow the installer, each installed with `crabx install` once crabx is: name them as arguments,
+or space-separated in `CRABX_INSTALL`, which also fits the PowerShell line above. A crate's author can
+thereby publish a one-line installer, with no per-crate config:
+
+```sh
+curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh -s -- moq-cli moq-relay
+powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String))) moq-cli moq-relay"
+```
+
+Each crate is `CRATE` or `CRATE@VERSION`, and the installer stops at the first that fails.
+
 Then:
 
 ```sh
@@ -197,7 +208,7 @@ Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `tests/e2e.sh` against the live crates.io and GitHub on every target, then offline from its cache, and runs
 `cargo test` on macOS and Windows and `install.ps1` on Windows. It packs the build's npm packages and, with
 `tests/install.sh`, runs `crabx install` from them and a crate's launcher from a new shell on Linux, macOS, and
-Windows. It also runs both documented install lines from crabx.kixel.me.
+Windows. It also runs both installers with a named crate, and both documented install lines from crabx.kixel.me.
 
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
