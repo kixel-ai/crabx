@@ -109,7 +109,7 @@ def builds(version):
 
 
 def crate():
-    """Decide whether this commit's crabx version is new to crates.io, and what to build first."""
+    """Decide whether this commit's crabx version is new to crates.io."""
     version = checkout_version()
     versions = published()
     # The pipeline releases a version under a bare vX.Y.Z tag naming its published commit
@@ -119,9 +119,9 @@ def crate():
     if clash:
         raise SystemExit(f"bare tags {', '.join(f'v{v}' for v in sorted(clash))} name crabx versions, so the pipeline could release crabx under them; delete them")
     if version in versions:
-        output(publish="false", builds={"include": []})
+        output(publish="false")
         return
-    output(publish="true", builds=builds(version))
+    output(publish="true")
 
 
 def nightly():

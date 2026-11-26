@@ -34,6 +34,27 @@ commit, so Dependabot can bump it. It refuses to overwrite a different existing
 file. The pipeline checks out its own scripts at the exact commit of the called
 workflow, independently of the caller's checkout.
 
+A crates.io version can't be replaced, so a release workflow can build its binaries
+before publishing. `crabx-dry-run.yml` plans each tracked binary crate whose manifest
+names the repository, at the calling commit and its manifest version, and builds it on
+every target as the pipeline will once it is published. It uploads, attests, tags, and
+releases nothing, so it needs only `contents: read` and runs from any branch or event;
+it fails when no crate qualifies. Gate publishing on it, pinned to the same commit as
+the caller above (from `pipeline-v1.1.0`):
+
+```yaml
+jobs:
+  check:
+    uses: kixel-ai/crabx/.github/workflows/crabx-dry-run.yml@<pipeline commit>
+  publish:
+    needs: check
+    # ...cargo publish
+```
+
+crabx's own `release.yml` gates its crates.io publish this way, in the same run as its
+pipeline caller; the dry run's build jobs take other names and upload nothing, so they
+never collide with the release's.
+
 Each run discovers tracked crate manifests, looks up crates.io versions published
 since the caller workflow was added, and fills missing target archives. Yanked
 versions, library-only crates, and crates whose crates.io or published manifest

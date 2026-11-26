@@ -147,6 +147,12 @@ def published(name, version, repo):
     return {"name": safe(name), "version": safe(version), "sha": vcs["git"]["sha1"], "path": str(path)}
 
 
+def releasable(package):
+    """Whether a manifest's package is one crates.io could hold, as discovery looks it up."""
+    # A name crates.io cannot hold, such as a template's, is no release to look up.
+    return bool(package) and package.get("publish") != False and bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", package.get("name", "")))
+
+
 def discover():
     workflow = os.environ["CALLER_WORKFLOW"].split("/.github/", 1)[1].split("@", 1)[0]
     added = run("git", "log", "--follow", "--diff-filter=A", "--format=%cI", "--", ".github/" + workflow).splitlines()
@@ -156,8 +162,7 @@ def discover():
     names = set()
     for path in run("git", "ls-files", "**/Cargo.toml", "Cargo.toml").splitlines():
         package = tomllib.loads(Path(path).read_text()).get("package", {})
-        # A name crates.io cannot hold, such as a template's, is no release to look up.
-        if package and package.get("publish") != False and re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", package.get("name", "")):
+        if releasable(package):
             names.add(package["name"])
     items = []
     repo = "https://github.com/" + os.environ["GITHUB_REPOSITORY"]
@@ -181,6 +186,36 @@ def discover():
                 if not item["targets"]:
                     continue
             items.append(item)
+    return items
+
+
+def unpublished():
+    """Plan this commit's binary crates at their manifest versions, as discovery would find them once published."""
+    repo = "https://github.com/" + os.environ["GITHUB_REPOSITORY"]
+    root = Path.cwd().resolve()
+    tracked = {(root / path).resolve() for path in run("git", "ls-files", "**/Cargo.toml", "Cargo.toml").splitlines()}
+    seen = set()
+    items = []
+    for manifest in sorted(tracked):
+        # A workspace's metadata lists every member, so one call covers its tracked manifests.
+        if manifest in seen or not releasable(tomllib.loads(manifest.read_text()).get("package", {})):
+            continue
+        # Cargo resolves inherited fields, such as `version.workspace = true`, without building anything.
+        metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent)))
+        for package in metadata["packages"]:
+            path = Path(package["manifest_path"]).resolve()
+            if path in seen or path not in tracked:
+                continue
+            seen.add(path)
+            # Cargo reports `publish = false` as an empty registry list.
+            if package["publish"] == [] or not any("bin" in t["kind"] for t in package["targets"]):
+                continue
+            if not same_repo(package.get("repository"), repo):
+                print(f"{package['name']}: its manifest does not name {repo} as its repository", file=sys.stderr)
+                continue
+            items.append({"name": safe(package["name"]), "version": safe(package["version"]), "sha": os.environ["GITHUB_SHA"], "path": path.parent.relative_to(root).as_posix()})
+    if not items:
+        raise ValueError(f"no tracked binary crate names {repo} as its repository, so a dry run has nothing to build")
     return items
 
 
@@ -329,8 +364,13 @@ def provenance(item):
 
 def main():
     mode = sys.argv[1]
-    if mode in ("discover", "fixture"):
-        items = discover() if mode == "discover" else [{"name": "crabx-pipeline-fixture", "version": "0.0.0", "sha": os.environ["GITHUB_SHA"], "path": "pipeline/fixture"}]
+    if mode in ("discover", "dry-run", "fixture"):
+        if mode == "discover":
+            items = discover()
+        elif mode == "dry-run":
+            items = unpublished()
+        else:
+            items = [{"name": "crabx-pipeline-fixture", "version": "0.0.0", "sha": os.environ["GITHUB_SHA"], "path": "pipeline/fixture"}]
         matrix = [{**item, "target": target, "os": runner} for item in items for target, runner in TARGETS if target in targets(item)]
         # GitHub's matrix has a hard limit. Do not silently omit old releases.
         if len(matrix) > 256:

@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import subprocess
 import tarfile
 import tempfile
 import unittest
@@ -222,18 +223,18 @@ class Pipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "out"
             env = {"GITHUB_OUTPUT": str(out), "GITHUB_SHA": "c" * 40}
-            with patch.dict(os.environ, env), patch.object(p.sys, "argv", ["pipeline.py", mode]), patch.object(p, "discover", return_value=list(items)):
+            with patch.dict(os.environ, env), patch.object(p.sys, "argv", ["pipeline.py", mode]), patch.object(p, "discover", return_value=list(items)), patch.object(p, "unpublished", return_value=list(items)):
                 p.main()
             return {key: json.loads(value) for key, value in (line.split("=", 1) for line in out.read_text().splitlines())}
 
     def test_outputs_carry_every_field_the_workflows_read(self):
         def reads(workflow):
             return set(re.findall(r"\bmatrix\.([a-z_]+)", (Path(__file__).parents[1] / ".github/workflows" / workflow).read_text()))
-        for mode, items in (("fixture", ()), ("discover", self.discovered())):
+        for mode, items, count in (("fixture", (), 6), ("dry-run", self.unpublished(), 6), ("discover", self.discovered(), 5)):
             found = self.outputs(mode, items)
             self.assertIs(found["any"], True)
             builds = found["builds"]["include"]
-            self.assertEqual(len(builds), 6 if mode == "fixture" else 5)
+            self.assertEqual(len(builds), count)
             for build in builds:
                 self.assertLessEqual(reads("crabx-build.yml"), build.keys(), mode)
                 self.assertEqual(build["os"], dict(p.TARGETS)[build["target"]])
@@ -241,6 +242,41 @@ class Pipeline(unittest.TestCase):
         for release in found["releases"]["include"]:
             self.assertLessEqual(reads("crabx.yml"), release.keys())
         self.assertEqual(self.outputs("discover"), {"builds": {"include": []}, "releases": {"include": []}, "any": False})
+
+    def unpublished(self, members=None):
+        """Run the real unpublished() with Cargo on a git workspace whose tracked members are given as manifests."""
+        members = members or {
+            "cli": '[package]\nname="demo"\nversion.workspace=true\nrepository.workspace=true\n[[bin]]\nname="demo"\npath="main.rs"\n',
+            "lib": '[package]\nname="demo-lib"\nversion="0.1.0"\nrepository.workspace=true\n[lib]\npath="lib.rs"\n',
+            "private": '[package]\nname="demo-private"\nversion="0.1.0"\npublish=false\nrepository.workspace=true\n[[bin]]\nname="private"\npath="main.rs"\n',
+            "fork": '[package]\nname="demo-fork"\nversion="0.1.0"\nrepository="https://github.com/other/demo"\n[[bin]]\nname="fork"\npath="main.rs"\n',
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = ", ".join(f'"{m}"' for m in [*members, "untracked"])
+            (root / "Cargo.toml").write_text(f'[workspace]\nmembers=[{workspace}]\n[workspace.package]\nversion="{ITEM["version"]}"\nrepository="{REPO}"\n')
+            untracked = '[package]\nname="demo-untracked"\nversion="0.1.0"\nrepository.workspace=true\n[[bin]]\nname="untracked"\npath="main.rs"\n'
+            for member, manifest in {**members, "untracked": untracked}.items():
+                (root / member).mkdir()
+                (root / member / "Cargo.toml").write_text(manifest)
+                for source in ("main.rs", "lib.rs"):
+                    (root / member / source).write_text("")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "Cargo.toml", *(f"{m}/Cargo.toml" for m in members)], check=True)
+            cwd = os.getcwd()
+            os.chdir(root)
+            try:
+                with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "GITHUB_SHA": ITEM["sha"]}):
+                    return p.unpublished()
+            finally:
+                os.chdir(cwd)
+
+    def test_dry_run_plans_this_commits_tracked_binary_crates(self):
+        # Only the tracked, publishable binary crate naming this repository, at its inherited version.
+        self.assertEqual(self.unpublished(), [{k: v for k, v in ITEM.items() if k != "tag"}])
+        # A gate with nothing to build would pass vacuously, so it fails instead.
+        with self.assertRaisesRegex(ValueError, "nothing to build"):
+            self.unpublished({"lib": '[package]\nname="demo-lib"\nversion="0.1.0"\n[lib]\npath="lib.rs"\n'})
 
     def test_build_runs_cargo_without_runner_apis(self):
         metadata = json.dumps({"target_directory": "target", "packages": [{"name": "demo", "version": "1.2.3", "targets": [{"name": "demo", "kind": ["bin"]}]}]})
