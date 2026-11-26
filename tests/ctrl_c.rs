@@ -69,6 +69,7 @@ fn ctrl_c_waits_for_the_crate_and_exits_with_its_code() {
 	fs::write(&source, FIXTURE).unwrap();
 	assert!(
 		Command::new("rustc")
+			.args(["--edition", "2024"])
 			.arg(&source)
 			.arg("-o")
 			.arg(&helper)

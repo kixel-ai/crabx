@@ -118,7 +118,7 @@ fn execute(path: PathBuf, args: Vec<std::ffi::OsString>, admitted: Option<std::f
 		// Windows sends Ctrl-C to every process on the console; crabx keeps waiting so the prompt
 		// returns only once the crate has handled it and exited.
 		console::wait_out_ctrl_c().context("handle Ctrl-C while the crate runs")?;
-		let mut child = command.spawn().with_context(|| format!("execute {}", path.display()));
+		let child = command.spawn().with_context(|| format!("execute {}", path.display()));
 		drop(admitted);
 		let status = child?.wait().with_context(|| format!("wait for {}", path.display()))?;
 		std::process::exit(status.code().unwrap_or(1));
