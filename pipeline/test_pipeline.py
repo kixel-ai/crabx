@@ -243,26 +243,30 @@ class Pipeline(unittest.TestCase):
             self.assertLessEqual(reads("crabx.yml"), release.keys())
         self.assertEqual(self.outputs("discover"), {"builds": {"include": []}, "releases": {"include": []}, "any": False})
 
-    def unpublished(self, members=None):
-        """Run the real unpublished() with Cargo on a git workspace whose tracked members are given as manifests."""
+    def unpublished(self, members=None, outside=None):
+        """Run the real unpublished() with Cargo on a git workspace whose tracked members, and tracked crates it doesn't list, are given as manifests."""
         members = members or {
             "cli-é": '[package]\nname="demo"\nversion.workspace=true\nrepository.workspace=true\n[[bin]]\nname="demo"\npath="main.rs"\n',
             "lib": '[package]\nname="demo-lib"\nversion="0.1.0"\nrepository.workspace=true\n[lib]\npath="lib.rs"\n',
             "private": '[package]\nname="demo-private"\nversion="0.1.0"\npublish=false\nrepository.workspace=true\n[[bin]]\nname="private"\npath="main.rs"\n',
             "fork": '[package]\nname="demo-fork"\nversion="0.1.0"\nrepository="https://github.com/other/demo"\n[[bin]]\nname="fork"\npath="main.rs"\n',
+            "internal": '[package]\nname="demo-internal"\nversion="0.1.0"\npublish=["internal"]\nrepository.workspace=true\n[[bin]]\nname="internal"\npath="main.rs"\n',
+        }
+        outside = outside if outside is not None else {
+            "tests/fixture": f'[package]\nname="demo-fixture"\nversion="0.1.0"\nrepository="{REPO}"\n[[bin]]\nname="fixture"\npath="main.rs"\n',
         }
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workspace = ", ".join(f'"{m}"' for m in [*members, "untracked"])
             (root / "Cargo.toml").write_text(f'[workspace]\nmembers=[{workspace}]\n[workspace.package]\nversion="{ITEM["version"]}"\nrepository="{REPO}"\n')
             untracked = '[package]\nname="demo-untracked"\nversion="0.1.0"\nrepository.workspace=true\n[[bin]]\nname="untracked"\npath="main.rs"\n'
-            for member, manifest in {**members, "untracked": untracked}.items():
-                (root / member).mkdir()
+            for member, manifest in {**members, **outside, "untracked": untracked}.items():
+                (root / member).mkdir(parents=True)
                 (root / member / "Cargo.toml").write_text(manifest)
                 for source in ("main.rs", "lib.rs"):
                     (root / member / source).write_text("")
             subprocess.run(["git", "init", "-q", str(root)], check=True)
-            subprocess.run(["git", "-C", str(root), "add", "Cargo.toml", *(f"{m}/Cargo.toml" for m in members)], check=True)
+            subprocess.run(["git", "-C", str(root), "add", "Cargo.toml", *(f"{m}/Cargo.toml" for m in [*members, *outside])], check=True)
             cwd = os.getcwd()
             os.chdir(root)
             try:
@@ -272,7 +276,8 @@ class Pipeline(unittest.TestCase):
                 os.chdir(cwd)
 
     def test_dry_run_plans_this_commits_tracked_binary_crates(self):
-        # Only the tracked, publishable binary crate naming this repository, at its inherited version.
+        # Only the tracked, publishable binary crate naming this repository, at its inherited version,
+        # skipping a crate restricted to another registry and a fixture the workspace doesn't list.
         # A non-ASCII path, which Git quotes unless asked not to, plans as written.
         self.assertEqual(self.unpublished(), [{**{k: v for k, v in ITEM.items() if k != "tag"}, "path": "cli-é"}])
         # A gate with nothing to build would pass vacuously, so it fails instead.

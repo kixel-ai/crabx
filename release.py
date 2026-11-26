@@ -118,6 +118,8 @@ def crate():
     clash = bare_tags() & (set(versions) | {version})
     if clash:
         raise SystemExit(f"bare tags {', '.join(f'v{v}' for v in sorted(clash))} name crabx versions, so the pipeline could release crabx under them; delete them")
+    # Fail before publishing if npm would lack a package for one of the targets the pipeline builds.
+    targets()
     if version in versions:
         output(publish="false")
         return

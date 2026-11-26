@@ -207,14 +207,19 @@ def unpublished():
         if manifest in seen or not releasable(tomllib.loads(manifest.read_text()).get("package", {})):
             continue
         # Cargo resolves inherited fields, such as `version.workspace = true`, without building anything.
-        metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent), env=env))
+        try:
+            metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent), env=env))
+        except subprocess.CalledProcessError:
+            # Cargo can't publish a manifest it can't load, such as a fixture inside a workspace that doesn't list it.
+            print(f"{manifest.relative_to(root).as_posix()}: Cargo can't load it, so it can't be published", file=sys.stderr)
+            continue
         for package in metadata["packages"]:
             path = Path(package["manifest_path"]).resolve()
             if path in seen or path not in tracked:
                 continue
             seen.add(path)
-            # Cargo reports `publish = false` as an empty registry list.
-            if package["publish"] == [] or not any("bin" in t["kind"] for t in package["targets"]):
+            # Cargo reports `publish = false` as an empty registry list, and no list as null.
+            if (package["publish"] is not None and "crates-io" not in package["publish"]) or not any("bin" in t["kind"] for t in package["targets"]):
                 continue
             if not same_repo(package.get("repository"), repo):
                 print(f"{package['name']}: its manifest does not name {repo} as its repository", file=sys.stderr)
