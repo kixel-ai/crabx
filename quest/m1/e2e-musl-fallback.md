@@ -2,36 +2,27 @@
 
 ## Goal
 
-`tests/e2e.sh` installs a real crate that ships only static musl Linux builds on glibc Linux and
-checks its trust source and that the installed binary is static, as it did with `token-max@0.0.1`
-before [attestation binding](https://github.com/kixel-ai/crabx/pull/45) refused that release: its
-only attestation is the author's own workflow signing from `refs/heads/main`, which names no
-release. The check must run against a pipeline-signed release, since a branch-ref attestation
-from any other signer now fails.
+On glibc Linux, `tests/e2e.sh` runs a real crate that ships only static musl Linux builds, checks
+its trust source, and checks that the installed binary is static, as it did with `token-max@0.0.1`
+before [attestation binding](https://github.com/kixel-ai/crabx/pull/45) refused that release.
 
 ## Plan
 
-Decided 2026-11-25 (maintainer, in
-[#45](https://github.com/kixel-ai/crabx/pull/45#issuecomment-7170514240)): ✅ republish
-`token-max` (kixel-ai/token-max) through crabx's pipeline so its attestations are pipeline-signed
-and Linux ships musl-only, then restore the check against that release (rejected: dropping the
-check; accepting an author's branch attestation with signed tag evidence). The republish is
-token-max's work, not this tree's: it changes token-max's `release.yml` and
-`docs/releasing.md` and cuts its release, so it belongs in kixel-ai/token-max's quest tree,
-where `/quest-plan` adds it as a quest (see its `quest/m1/release-0.1.md`). This quest only
-restores the check once that release exists, so it waits on it.
+Decided 2026-11-25 (maintainer, /quest-plan): ✅ use `ripgrep@14.1.1` now (rejected: keep waiting
+for token-max to republish through crabx's pipeline; drop the check). The earlier plan waited on
+token-max shipping a pipeline-signed, musl-only release, but crabx's pipeline builds glibc Linux
+archives (and, once [musl builds](/quest/m1/pipeline-musl.md) land, musl beside them), so that
+wait would never clear. On x86_64, ripgrep 14.1.1 ships only an `x86_64-unknown-linux-musl`
+archive, with no attestation. On 2026-11-25, crabx 0.2.0 ran it on x86_64 glibc Linux from its static build and
+recorded `author release (no published attestation)`.
 
-Then in `tests/e2e.sh`:
+In `tests/e2e.sh`, on `x86_64-unknown-linux-gnu`:
 
-- add `pinned "$1" token-max@<version> author "GitHub attestations (1) sha256:"` on
-  `*-linux-gnu` (with `bare=1` restored if its `--version` prints only the version, and the
-  `bare` handling in `pinned`);
-- restore the `interpreter token-max/<version>` check that the install is a static build;
-- drop the `refused token-max@0.0.1` case, or keep it as the check that an author's
-  branch-signed attestation is refused if another crate can stand in for it.
+- `pinned "$1" ripgrep@14.1.1 author "author release (no published attestation)\""`;
+- an `interpreter ripgrep/14.1.1` check that the install is a static build (no program
+  interpreter), the inverse of the `fnox` check;
+- keep `refused token-max@0.0.1`: that release stays branch-signed, so it remains the check that
+  an author's branch-signed attestation is refused.
 
-## Waiting
-
-- kixel-ai/token-max: publish a release built by crabx's pipeline whose Linux assets are musl
-  only, so its attestations are pipeline-signed. Check with `gh release view -R kixel-ai/token-max`
-  and `gh attestation verify` showing the crabx pipeline's workflow as signer.
+Only x86_64: ripgrep ships an `aarch64-unknown-linux-gnu` archive, so on aarch64 the check would
+not exercise the fallback.
