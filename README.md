@@ -16,10 +16,10 @@ crabx moq-cli --help
 Install crabx once, from its release:
 
 ```sh
+npx @kixel/crabx install
 curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
 npm install -g @kixel/crabx
-npx @kixel/crabx install
 cargo install crabx
 ```
 
