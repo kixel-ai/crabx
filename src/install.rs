@@ -42,14 +42,29 @@ pub async fn reinstall(cache: &Cache, name: &str, version: &Version, args: &Args
 async fn install(cache: &Cache, name: &str, version: &Version, args: &Args) -> Result<Record> {
 	let stage = cache.stage()?;
 	fs::create_dir(stage.path().join("bin"))?;
-	let record = if args.build {
-		build(stage.path(), name, version)?
+	// Prebuilt Linux binaries need glibc, so a musl crabx always compiles.
+	let prebuilt = if args.build || cfg!(all(target_os = "linux", target_env = "musl")) {
+		None
 	} else {
-		ensure!(
-			!cfg!(all(target_os = "linux", target_env = "musl")),
-			"prebuilt binaries require glibc on Linux; use --build on musl"
-		);
 		fetch(stage.path(), name, version, args.allow_quickinstall, &cache.ratchet).await?
+	};
+	let record = match prebuilt {
+		Some(record) => record,
+		None => {
+			if !args.build {
+				// A source build carries no attestation, so it would slip past the requirement.
+				ensure!(
+					!args.require_attestation,
+					"no usable prebuilt release for {name}@{version} on {}, and --require-attestation refuses to compile it",
+					binstalk::TARGET
+				);
+				eprintln!(
+					"crabx: no usable prebuilt release for {name}@{version} on {}; compiling it with cargo install",
+					binstalk::TARGET
+				);
+			}
+			build(stage.path(), name, version)?
+		}
 	};
 	// Held across publishing, so a concurrent activation refuses this release instead of caching it.
 	let _admitted = cache.ratchet.admit(&record, args.require_attestation)?;
@@ -92,7 +107,14 @@ fn download_builder(redirects: &origin::Redirects) -> reqwest::ClientBuilder {
 	.read_timeout(Duration::from_secs(30))
 }
 
-async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool, ratchet: &Ratchet) -> Result<Record> {
+/// Install the first usable prebuilt release of `name@version`, or None when none runs here.
+async fn fetch(
+	stage: &Path,
+	name: &str,
+	version: &Version,
+	quickinstall: bool,
+	ratchet: &Ratchet,
+) -> Result<Option<Record>> {
 	let redirects = origin::Redirects::default();
 	let client = remote::Client::from_builder(download_builder(&redirects), 1000.try_into()?, 100.try_into()?)?;
 	let req = VersionReq::parse(&format!("={version}"))?;
@@ -219,18 +241,11 @@ async fn fetch(stage: &Path, name: &str, version: &Version, quickinstall: bool, 
 		if !found {
 			continue;
 		}
-		return package.install(stage, &name, fetcher.as_ref(), &redirects).await;
+		if let Some(record) = package.install(stage, &name, fetcher.as_ref(), &redirects).await? {
+			return Ok(Some(record));
+		}
 	}
-	bail!(
-		"no usable prebuilt release for {}@{} on {}; use --build to compile explicitly",
-		package.name,
-		package.version,
-		targets
-			.iter()
-			.map(|t| t.target.as_str())
-			.collect::<Vec<_>>()
-			.join(" or ")
-	)
+	Ok(None)
 }
 
 fn disabled(target: &TargetDataErased, strategy: Strategy) -> bool {
@@ -248,7 +263,7 @@ impl Package<'_> {
 		discovery_name: &str,
 		fetcher: &dyn Fetcher,
 		redirects: &origin::Redirects,
-	) -> Result<Record> {
+	) -> Result<Option<Record>> {
 		let mut staged = tempfile::NamedTempFile::new_in(stage)?;
 		fetcher.download(staged.as_file_mut()).await?;
 		// quickinstall's archive is only ever minisign-checked; its releases carry no GitHub attestation.
@@ -321,13 +336,11 @@ impl Package<'_> {
 						fetcher.target()
 					)
 				})?;
-				ensure!(
-					!dynamic,
-					"{}@{}'s only Linux build, {}, links dynamically against musl; use --build to compile explicitly",
-					self.name,
-					self.version,
-					fetcher.target()
-				);
+				// It needs a musl loader this host lacks, so the next candidate, or a source build, runs instead.
+				if dynamic {
+					remove(&download)?;
+					return Ok(None);
+				}
 			}
 			files.push(file);
 		}
@@ -337,17 +350,23 @@ impl Package<'_> {
 			file.install_bin_noclobber()?;
 			binaries.push(file.base_name.to_string());
 		}
-		if download.is_dir() {
-			fs::remove_dir_all(&download)?;
-		} else {
-			fs::remove_file(&download)?;
-		}
-		Ok(Record {
+		remove(&download)?;
+		Ok(Some(Record {
 			version: self.version.clone(),
 			bins: binaries,
 			source,
-		})
+		}))
 	}
+}
+
+/// Remove the unpacked download, a directory or a single file.
+fn remove(download: &Path) -> Result<()> {
+	if download.is_dir() {
+		fs::remove_dir_all(download)?;
+	} else {
+		fs::remove_file(download)?;
+	}
+	Ok(())
 }
 
 fn layout(data: &bins::Data<'_>, binaries: &[(String, bool)], discovery_name: &str) -> Result<String> {
@@ -419,7 +438,7 @@ fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
 	ensure!(
 		command
 			.status()
-			.context("--build needs cargo and a Rust toolchain")?
+			.context("compiling needs cargo and a Rust toolchain")?
 			.success(),
 		"cargo install failed"
 	);
@@ -782,7 +801,7 @@ mod tests {
 	}
 
 	/// Install `fetcher`'s release of `tool`, returning the staging directory and the result.
-	fn install(fetcher: Fake) -> (tempfile::TempDir, Result<Record>) {
+	fn install(fetcher: Fake) -> (tempfile::TempDir, Result<Option<Record>>) {
 		let stage = tempfile::tempdir().unwrap();
 		fs::create_dir(stage.path().join("bin")).unwrap();
 		let ratchet = crate::ratchet::Ratchet {
@@ -838,7 +857,7 @@ mod tests {
 		let unpacked = |stage: &Path| stage.join("download").exists() || stage.join("bin/tool").exists();
 		// quickinstall's minisign check is its only proof; GitHub attestations are never queried.
 		let (stage, record) = install(fake(true, true, None));
-		assert_eq!(record.unwrap().source, "quickinstall");
+		assert_eq!(record.unwrap().unwrap().source, "quickinstall");
 		assert!(
 			stage
 				.path()
@@ -855,7 +874,7 @@ mod tests {
 		// An author release outside GitHub has no attestation to check, and says so.
 		let (_, record) = install(fake(false, true, Some(("https://example.com/tool.tgz", None))));
 		assert_eq!(
-			record.unwrap().source,
+			record.unwrap().unwrap().source,
 			"author release (repository does not support GitHub attestations)"
 		);
 		let (stage, result) = install(fake(false, false, Some(("https://example.com/tool.tgz", None))));
