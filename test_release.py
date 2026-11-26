@@ -438,10 +438,10 @@ esac""")
         (self.bin / name).write_text("#!/bin/sh\n" + body + "\n")
         (self.bin / name).chmod(0o755)
 
-    def install(self, *args, **env):
+    def install(self, *args, cwd=None, **env):
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.temp / "home"), **env}
         env = {"TMPDIR": str(self.tmp), **env}
-        return subprocess.run(["sh", str(HERE / "install.sh"), *args], capture_output=True, text=True, env=env, timeout=30)
+        return subprocess.run(["sh", str(HERE / "install.sh"), *args], capture_output=True, text=True, env=env, cwd=cwd, timeout=30)
 
     def test_installs_the_newest_stable_release(self):
         result = self.install()
@@ -515,6 +515,7 @@ esac""")
                 self.assertIn("invalid crate", result.stderr)
         self.assertFalse((self.temp / "curl.log").exists(), "an invalid crate reached the network")
         # CRABX_INSTALL's words are never globbed into file names.
+        (self.temp / "x").write_text("")
         (self.temp / "x").write_text("")
         result = self.install(CRABX_INSTALL="*", cwd=self.temp)
         self.assertIn("invalid crate '*'", result.stderr)

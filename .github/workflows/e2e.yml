@@ -175,6 +175,8 @@ jobs:
       # a spec that is an option, which must install nothing.
       - name: Crates
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-crates'
           & ([scriptblock]::Create((Get-Content -Raw install.ps1))) fnox@1.50.0
@@ -193,6 +195,8 @@ jobs:
       - name: Deployed installer
         if: ${{ github.event_name != 'pull_request' }}
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           $env:CRABX_INSTALL_DIR = Join-Path $env:RUNNER_TEMP 'crabx-live'
           powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
