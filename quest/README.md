@@ -3,8 +3,8 @@
 ## Goal
 
 Someone with no Rust toolchain runs a Rust CLI as `crabx <crate>[@version] args`, as fast
-as npx on a warm cache, from a prebuilt binary for their platform, and never compiles
-unless they pass `--build`. Any crate whose releases carry assets binstall finds works,
+as npx on a warm cache, from a prebuilt binary for their platform, and compiles with
+Cargo only when no prebuilt binary runs there, saying so. Any crate whose releases carry assets binstall finds works,
 with quickinstall's third-party builds behind a flag. A repo opts into prebuilt builds of each crates.io version, for Linux, macOS, and Windows on x86_64 and arm64, by
 adding one configless workflow. moq's CLIs (moq-cli, moq-relay) run through crabx first,
 from moq's own releases.
@@ -54,6 +54,11 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   Superseded 2026-11-25 (maintainer, /quest-plan in kixel-ai/token-max): the pipeline
   builds static musl archives beside the gnu ones ([musl builds](/quest/m1/pipeline-musl.md));
   crabx still refuses prebuilt binaries on musl Linux.
+- ✅ Decided 2026-11-25 (maintainer, site review): a release with no usable prebuilt binary
+  for the platform, including every release on musl Linux, compiles with `cargo install
+  --locked` and says so on stderr; `--build` compiles even when one exists. Trust failures and
+  `--require-attestation` still refuse. Rejected: an error naming `--build` (it supersedes
+  the musl and missing-asset errors above).
 - ✅ An unpinned run is stale-while-revalidate: it runs the cached latest and checks
   crates.io's sparse index in the background for the next run. Once cached, a pinned version
   runs with no network. Rejected: a check every run; a 24-hour TTL.

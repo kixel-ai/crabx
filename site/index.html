@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- GitHub Pages sends no custom headers, so the policy lives here: the page loads nothing from another origin. -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
-<title>crabx: run Rust CLIs without compiling them</title>
-<meta name="description" content="crabx runs a crates.io CLI from its author's prebuilt release, verifying the release's attestations when it has them. No toolchain, no cargo install.">
+<title>crabx: stop compiling Rust CLIs from source</title>
+<meta name="description" content="crabx runs a crates.io CLI from prebuilt releases. Works with any repo that supports cargo-binstall.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 <script src="site.js" defer></script>
@@ -14,13 +14,13 @@
 <link rel="preload" href="fonts/SpaceGrotesk.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://crabx.kixel.me/">
-<meta property="og:title" content="crabx: run Rust CLIs without compiling them">
-<meta property="og:description" content="crabx runs a crates.io CLI from its author's prebuilt release, verifying the release's attestations when it has them. No toolchain, no cargo install.">
+<meta property="og:title" content="crabx: stop compiling Rust CLIs from source">
+<meta property="og:description" content="crabx runs a crates.io CLI from prebuilt releases. Works with any repo that supports cargo-binstall.">
 <!-- og.png is a 1200x630 screenshot of this page's top; retake it after changing that part. -->
 <meta property="og:image" content="https://crabx.kixel.me/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="crabx: run Rust CLIs without compiling them.">
+<meta property="og:image:alt" content="crabx: stop compiling Rust CLIs from source.">
 <meta name="twitter:card" content="summary_large_image">
 </head>
 <body>
@@ -40,116 +40,105 @@
 <main>
 <section class="hero">
   <p class="eyebrow">For Rust CLIs</p>
-  <h1>Run Rust CLIs without compiling them</h1>
-  <p class="lede"><code>crabx &lt;crate&gt;</code> runs a crates.io CLI from its author's
-  prebuilt release, verifying the release's attestations when it has them.
-  <strong>No toolchain, no <code>cargo install</code>, no waiting.</strong></p>
+  <h1>Stop compiling Rust CLIs from source</h1>
+  <p class="lede"><code>crabx &lt;crate&gt;</code> runs a crates.io CLI from prebuilt releases.
+  Works with any repo that supports <a href="https://github.com/cargo-bins/cargo-binstall">cargo-binstall</a>.</p>
 
   <div class="install">
-    <!-- macOS and Linux by default; site.js switches to Windows when the browser reports it. -->
-    <input type="radio" name="os" id="os-unix" checked>
-    <input type="radio" name="os" id="os-windows">
-    <div class="tabs" role="presentation">
-      <label for="os-unix">macOS / Linux</label>
-      <label for="os-windows">Windows</label>
-    </div>
-    <div class="run" id="run">
-      <pre class="cmd unix"><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">curl</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.sh</span> <span class="tk-op">|</span> <span class="tk-bin">sh</span></span></code></pre>
-      <pre class="cmd windows"><code><span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "<span class="tk-bin">curl.exe</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> Out-String <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span></code></pre>
+    <div class="run">
+      <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">npx</span> @kixel/crabx install</span></code></pre>
       <button class="copy" type="button" hidden>Copy</button>
     </div>
-    <p class="also unix">Then add <code>~/.local/bin</code> to your PATH if the installer says it's missing.</p>
-    <p class="also windows">Then open a new terminal, which picks up crabx on your Path.</p>
-    <p class="also">Or with npm or Cargo, then run any crate:</p>
+    <p class="also">Installs the native crabx binary, so nothing after this needs Node. On macOS and
+    Linux, add <code>~/.local/bin</code> to your PATH if it says so; on Windows, open a new
+    terminal. Or install it with:</p>
     <div class="run more">
-      <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">npm</span> install <span class="tk-flag">-g</span> @kixel/crabx</span>
-<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">npx</span> @kixel/crabx install</span>
-<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">cargo</span> install crabx</span>
-<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> moq-relay <span class="tk-flag">--help</span></span></code></pre>
+      <pre><code><span class="d"># macOS / Linux</span>
+<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">curl</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.sh</span> <span class="tk-op">|</span> <span class="tk-bin">sh</span></span>
+<span class="d"># Windows</span>
+<span class="tk-prompt">&gt; </span><span class="sel"><span class="tk-bin">powershell</span> <span class="tk-flag">-ExecutionPolicy</span> Bypass <span class="tk-flag">-c</span> "<span class="tk-bin">curl.exe</span> <span class="tk-flag">--proto</span> '=https' <span class="tk-flag">--tlsv1.2</span> <span class="tk-flag">-fsSL</span> <span class="tk-url">https://crabx.kixel.me/install.ps1</span> <span class="tk-op">|</span> Out-String <span class="tk-op">|</span> <span class="tk-bin">iex</span>"</span>
+<span class="d"># Anywhere with a Rust toolchain</span>
+<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">cargo</span> install crabx</span></code></pre>
+    </div>
+    <p class="also">Then run any crate:</p>
+    <div class="run more">
+      <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> ripgrep TODO</span>
+<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> hyperfine 'sleep 0.1'</span>
+<span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> install just</span>  <span class="d"># puts `just` on your PATH</span></code></pre>
     </div>
   </div>
-  <p class="note">Prebuilt for x86_64 and arm64 on Linux (glibc 2.28 or later), macOS, and Windows.</p>
+  <p class="note">crabx itself is prebuilt for x86_64 and arm64 on Linux (glibc 2.28 or later), macOS, and Windows.</p>
 </section>
 
-<section class="demo" aria-labelledby="demo-title">
-  <div class="term">
-    <div class="bar">
-      <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-      <span id="demo-title">crabx moq-relay <span class="d">on an empty cache</span></span>
-    </div>
-    <!-- Output of crabx 0.1.0's build; rerun the commands when they change. -->
-    <div class="body" tabindex="0" role="region" aria-labelledby="demo-title"><pre class="screen"><code><span class="d">$</span> <span class="b">crabx moq-relay --version</span>
-moq-relay 0.17.18
-<span class="d">$</span> <span class="b">crabx moq-relay --help</span>
-moq-relay 0.17.18
-Top-level relay configuration, loadable from CLI arguments, environment
-variables, or a TOML file.
-
-Usage: moq-relay [FLAGS] [FILE]
-
-Arguments:
-  [FILE]  If provided, load the configuration from this file.
-
-Flags:
-      --listen &lt;LISTEN&gt;           Listen for QUIC (UDP) on the given address.
-                                  Defaults to `[::]:443`.
-
-<span class="elided">… 669 more lines</span></code></pre></div>
-  </div>
-  <p class="fine">The first run looked up moq-relay on crates.io, fetched its author's release, and
-  started it in 1.7 seconds; the second started from the cache in 0.01 seconds.</p>
-</section>
-
-<section class="trust" aria-labelledby="trust">
-  <h2 id="trust">It runs what the author shipped</h2>
+<section class="how" aria-labelledby="how">
+  <h2 id="how">How it works</h2>
   <ol class="steps">
     <li>
       <span class="num">01</span>
       <h3>Find</h3>
-      <p>Looks up the crate on crates.io and finds its binary in <strong>the release its
-      own repository published</strong>. A third party's build needs
-      <code>--allow-quickinstall</code>; a missing one is an error, and
-      <code>--build</code> compiles it instead. Release discovery and archive layouts are
-      <code>cargo-binstall</code>'s, including a crate's
-      <code>[package.metadata.binstall]</code>; its source-compile fallback is off, and
-      crabx's checks below still apply.</p>
+      <p>Looks up the crate on crates.io and finds the binary <strong>its own repository
+      released</strong>, the same way cargo-binstall does.</p>
     </li>
     <li>
       <span class="num">02</span>
-      <h3>Verify</h3>
-      <p>Checks GitHub's attestations for the archive's SHA-256 against Sigstore's or
-      GitHub's own trust root, and requires the signer to be the crate's repository, crabx's
-      pipeline, or GitHub's release service for that repository's tag. <strong>A bad attestation is an error, never a warning.</strong> A release
-      with none, such as moq-relay's above, runs unverified, unless crabx has verified one
-      for that crate before or <code>--require-attestation</code> is set.</p>
+      <h3>Cache</h3>
+      <p>Keeps it per crate and version. <strong>The next run starts instantly</strong>,
+      even offline.</p>
     </li>
     <li>
       <span class="num">03</span>
-      <h3>Cache</h3>
-      <p>Keeps the binary per crate, version, and platform, then runs it with
-      your arguments. <strong>A pinned, cached run makes no network request</strong>;
-      an unpinned one updates in the background.</p>
+      <h3>Run</h3>
+      <p>Runs it with your arguments, then <strong>checks for a newer release in the
+      background</strong> for next time.</p>
     </li>
   </ol>
+  <p class="fine">crabx never hosts builds; a crate's repository opts in by publishing them.
+  No prebuilt release for your platform? crabx compiles it with <code>cargo install</code>
+  instead. Lame, but better than not working.</p>
+</section>
+
+<section class="motivation" aria-labelledby="motivation">
+  <h2 id="motivation">Motivation</h2>
+  <p class="lede">I was tempted to make a new CLI tool in JavaScript just for <code>npx</code>.
+  Fuck that. Write it in Rust, and pre-compile binaries so it launches just as fast.</p>
+</section>
+
+<section class="security" aria-labelledby="security">
+  <h2 id="security">Security</h2>
+  <p class="lede">crabx runs the binary a crate's own repository released, or compiles it from
+  crates.io. Either way, you trust the same author you'd trust with <code>cargo install</code>,
+  and nobody else.</p>
+  <p class="lede">I could build every crate myself, but then you'd be trusting me too. A service
+  that compiles strangers' code and serves binaries to everyone is a juicy target, and its
+  binaries aren't the ones the author shipped. So maintainers opt in by publishing their own.</p>
+  <ul class="points">
+    <li>When a release has GitHub attestations, crabx verifies them and requires the signer to be
+    the crate's own repository. <strong>A bad attestation is an error, never a warning.</strong></li>
+    <li>Once crabx has seen an attested release of a crate, it refuses an unattested one, since
+    that's what a swapped archive looks like.</li>
+    <li>An unpinned run waits 24 hours before picking up a new release. Hijacked releases usually
+    get yanked faster than that.</li>
+    <li>Third-party builds from cargo-quickinstall are off unless you pass
+    <code>--allow-quickinstall</code>.</li>
+  </ul>
 </section>
 
 <section class="authors" aria-labelledby="authors">
-  <h2 id="authors">Ship your crate's binaries</h2>
-  <p class="lede">Publishing to crates.io is enough. Run <code>crabx init</code> once in your
-  crate's repository: it writes one workflow that calls crabx's release pipeline, which
-  builds every crates.io version you publish after you commit that workflow for whichever
-  of the six platforms its release lacks, and attests those archives. The repository must be public and
-  be the one your crate's <code>repository</code> field names on crates.io.</p>
+  <h2 id="authors">For maintainers</h2>
+  <p class="lede">If <code>cargo binstall</code> finds your binaries, crabx does too. Publish them with
+  <a href="https://opensource.axo.dev/cargo-dist/">dist</a> or
+  <a href="https://github.com/taiki-e/upload-rust-binary-action">upload-rust-binary-action</a>,
+  <a href="https://release-plz.dev/docs/extra/releasing-binaries">alongside release-plz</a> if you
+  use it.</p>
+  <p class="lede">Or run <code>crabx init</code> once: it writes one workflow that builds and attests
+  binaries for six platforms each time you publish to crates.io.</p>
   <div class="run more">
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>
 <span class="d">wrote /home/you/mycrate/.github/workflows/binaries.yml; commit it and push it to main</span></code></pre>
   </div>
-  <p class="fine">Archives you already publish for <code>cargo-binstall</code> run without
-  the pipeline where they cover a platform: crabx reads the same
-  <code>[package.metadata.binstall]</code> and layouts, from a public repository and
-  crates.io only, under the same trust checks.</p>
-  <p class="fine">Build jobs get read-only tokens; only the publishing job, which never runs
-  your crate's code, attests archives and writes releases. See
+  <p class="fine">The repository must be public and be the one your crate's <code>repository</code>
+  field names. Build jobs get read-only tokens; only the publishing job, which never runs your
+  crate's code, attests archives and writes releases. See
   <a href="https://github.com/kixel-ai/crabx/blob/main/pipeline/README.md">the pipeline</a>.</p>
 </section>
 </main>

@@ -16,7 +16,6 @@
 	--cyan: #22d3ee;
 	--link: #fdba8c;
 	--term-bg: #120d0b;
-	--term-bar: #1a1310;
 	--term-ink: #ede6e2;
 	--term-dim: #8f817a;
 	--tk-bin: #fb923c;
@@ -126,19 +125,7 @@ h1 {
 .lede { max-width: 42rem; margin: 1.5rem 0 0; color: var(--muted); font-size: 1.3rem; line-height: 1.5; text-wrap: pretty; }
 .lede strong, .lede code { color: var(--ink); }
 
-/* Install: radio tabs, so switching works without the script. */
 .install { margin-top: 2.5rem; max-width: 48rem; }
-.install input { position: absolute; opacity: 0; pointer-events: none; }
-.tabs { display: flex; gap: 0.25rem; }
-.tabs label { cursor: pointer; padding: 0.45rem 0.95rem; color: var(--muted); border-radius: 0.5rem 0.5rem 0 0; font: 600 0.85rem/1.2 var(--mono); user-select: none; }
-#os-unix:checked ~ .tabs label[for="os-unix"],
-#os-windows:checked ~ .tabs label[for="os-windows"] { background: var(--term-bg); color: var(--term-ink); }
-#os-unix:focus-visible ~ .tabs label[for="os-unix"],
-#os-windows:focus-visible ~ .tabs label[for="os-windows"] { outline: 2px solid var(--link); outline-offset: 2px; }
-#os-unix:checked ~ .run .windows,
-#os-windows:checked ~ .run .unix,
-#os-unix:checked ~ .windows,
-#os-windows:checked ~ .unix { display: none; }
 
 .run {
 	position: relative;
@@ -149,7 +136,7 @@ h1 {
 	background: var(--term-bg);
 	color: var(--term-ink);
 	border: 1px solid #ffffff1f;
-	border-radius: 0 0.75rem 0.75rem 0.75rem;
+	border-radius: 0.75rem;
 	box-shadow: 0 0 0 1px #e8590c33, 0 20px 60px -10px #e8590c66;
 }
 .run pre { flex: 1; margin: 0; overflow-x: auto; }
@@ -173,46 +160,14 @@ h1 {
 }
 .copy:hover { border-color: var(--term-ink); }
 .also { margin: 1.5rem 0 0.5rem; color: var(--muted); font-size: 0.95rem; }
-.run.more { padding: 0.8rem 1.1rem; border-radius: 0.75rem; box-shadow: none; }
-.run.more code { font-size: clamp(0.8rem, 2vw, 0.95rem); overflow-wrap: normal; }
+.run.more { padding: 0.8rem 1.1rem; box-shadow: none; }
+.run.more code { font-size: clamp(0.8rem, 2vw, 0.95rem); white-space: pre; overflow-wrap: normal; }
 .note { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.95rem; }
-
-/* The terminal: a real run of the built binary. */
-.demo { margin-top: 5rem; }
-.term {
-	background: var(--term-bg);
-	color: var(--term-ink);
-	overflow: hidden;
-	border: 1px solid #ffffff1f;
-	border-radius: 0.9rem;
-	box-shadow: 0 30px 120px -30px #e8590caa, 0 0 0 1px #e8590c22;
-}
-.bar {
-	display: flex;
-	align-items: center;
-	gap: 0.9rem;
-	padding: 0.65rem 1rem;
-	background: var(--term-bar);
-	border-bottom: 1px solid #ffffff12;
-	font: 600 0.8rem/1.2 var(--mono);
-}
-.bar .d { color: var(--term-dim); font-weight: 400; }
-.dots { display: flex; gap: 0.4rem; }
-.dots i { width: 0.75rem; height: 0.75rem; border-radius: 50%; background: #ff6b6b; }
-.dots i:nth-child(2) { background: #ffd166; }
-.dots i:nth-child(3) { background: #6ee7a0; }
-.body { overflow: auto; padding: 1rem 1.25rem; }
-.body:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
-.screen { margin: 0; font-size: 0.8rem; line-height: 1.45; }
-.screen code { font-size: 1em; white-space: pre; }
-.screen .b { font-weight: 700; }
-.screen .d { color: var(--term-dim); }
-.screen .elided { color: var(--term-dim); font-style: italic; }
 
 h2 { margin: 6rem 0 2rem; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 700; letter-spacing: -0.03em; text-wrap: balance; }
 .fine { max-width: 48rem; margin: 1.25rem 0 0; color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
 
-/* Find, verify, cache: three nodes joined by a gradient rail. */
+/* Find, cache, run: three nodes joined by a gradient rail. */
 .steps {
 	position: relative;
 	display: grid;
@@ -254,7 +209,12 @@ h2 { margin: 6rem 0 2rem; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 70
 /* Three columns need 3 x 17rem + 2 x 2rem of content plus the section's padding. */
 @media (max-width: 58rem) { .steps::before { display: none; } }
 
-.authors .lede { margin: 0 0 1.5rem; }
+.authors .lede, .motivation .lede, .security .lede { margin: 0 0 1.5rem; }
+
+.points { max-width: 48rem; margin: 0; padding-left: 1.2rem; color: var(--muted); }
+.points li { margin-bottom: 0.75rem; }
+.points li::marker { color: var(--orange); }
+.points strong, .points code { color: var(--ink); }
 
 footer {
 	display: flex;

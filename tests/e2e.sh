@@ -129,10 +129,10 @@ refused() {
     case $error in *"$expect"*) ;; *) fail "$spec failed with: $error" ;; esac
     if [ -e "$cache/author/${spec%@*}/${spec#*@}" ]; then fail "$spec left a cache entry"; fi
 }
-# Only quickinstall serves it, and the quickinstall entry cached above must not satisfy the default policy.
-targets=$target
-case $target in *-linux-gnu) targets="$target or ${target%-gnu}-musl" ;; *-apple-darwin) targets="$target or universal-apple-darwin or universal2-apple-darwin" ;; esac
-refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $targets; use --build to compile explicitly"
+# Only quickinstall serves it, and the quickinstall entry cached above must not satisfy the default
+# policy, which compiles instead and so fails here, with no toolchain.
+refused cargo-expand@1.0.126 "no usable prebuilt release for cargo-expand@1.0.126 on $target; compiling it with cargo install"
+refused cargo-expand@1.0.126 "compiling needs cargo and a Rust toolchain"
 # Ships only static musl Linux builds, which glibc Linux falls back to, but its only attestation is the
 # author's own workflow signing from a branch, which names no release.
 case $target in *-linux-gnu) refused token-max@0.0.1 "attestation from branch \"refs/heads/main\" is not signed by the crabx pipeline" ;; esac

@@ -16,10 +16,10 @@ crabx moq-cli --help
 Install crabx once, from its release:
 
 ```sh
+npx @kixel/crabx install
 curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
 powershell -ExecutionPolicy Bypass -c "curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String | iex"
 npm install -g @kixel/crabx
-npx @kixel/crabx install
 cargo install crabx
 ```
 
@@ -66,22 +66,23 @@ PATH lacks it, so add the directory to PATH yourself before running `crabx` or a
 name. Run a crate named
 `install` as `crabx install@VERSION`.
 
-Registry lookups and cache keys are case-insensitive. The explicit `--build` path
+Registry lookups and cache keys are case-insensitive. A source build
 preserves the typed crate spelling for Cargo. Binary names passed through `--bin`
 retain their spelling.
 
 crabx uses binstalk's release discovery, archive layouts, and signature verification.
-It never installs into `~/.cargo/bin`. Missing prebuilt assets are an error. Pass
-`--build` explicitly to run `cargo install --locked` into crabx's cache instead.
-Cargo then runs from the filesystem root, not the current directory, which may be an
+It never installs into `~/.cargo/bin`. A release with no usable prebuilt binary for this
+platform compiles with `cargo install --locked` into crabx's cache instead, saying so on
+stderr; `--build` compiles even when one exists. Trust failures never fall back to compiling.
+Cargo runs from the filesystem root, not the current directory, which may be an
 untrusted checkout, with `CARGO`, `CARGO_HOME`, `CARGO_TARGET_DIR`, and `PATH` resolved
 against the current directory first. Since Cargo reads `.cargo/config.toml` and
 `.cargo/config` in `CARGO_HOME`'s parent directories, a `CARGO_HOME` set or a
 `CARGO_TARGET_DIR` inside the current git checkout (or its superproject), Cargo
 configuration in a parent `CARGO_HOME` shares with the current directory, or Cargo or
 rustup configuration (`rust-toolchain.toml`) at the root is an error. A cached build
-still runs and its background refresh still checks the index for yanks; only the build
-of a new release fails, and the next run reports it.
+still runs and its background refresh still checks the index for yanks and fetches prebuilt
+releases; only the build of a new release fails, and the next run reports it.
 `--allow-quickinstall` permits cargo-quickinstall's third-party builds after the
 author's releases; those have a separate cache from the default trust policy.
 Quickinstall downloads require its minisign signature, checked against every byte before the
@@ -106,12 +107,13 @@ run that enforces this, crabx seeds it from every attestation already in its own
 once per crate; an attested release a crabx without this check (0.1, or a 0.2 release before it) caches
 afterward does not count until crabx verifies one itself. `--require-attestation` refuses any
 release without a verified attestation from the first run, for CI and other strict callers; it
-excludes `--build` and `--allow-quickinstall`, and background updates and launchers keep it.
+excludes `--build` and `--allow-quickinstall`, never compiles a release with no usable prebuilt
+binary nor runs one a default run compiled, and background updates and launchers keep it.
 Binstalk's configured minisign checks remain enabled. Optional
 `GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit for release
 discovery and attestations; they are sent only to GitHub's API, `api.github.com`. crabx downloads
 release archives without them, so releases from private GitHub repositories count as
-missing; `--build` compiles those crates.
+missing, and those crates compile.
 
 Every download has a budget, and exceeding one is an error. A release archive stages at most
 512 MiB and unpacks to at most 2 GiB and 10,000 files and directories, never unpacking links. A
@@ -141,8 +143,9 @@ requires neither Cargo nor GitHub's CLI.
 Caches live in the operating system's user cache directory, under
 `crabx/v2/<host>/<trust-policy>/<crate>/<version>`. Entries are staged, verified, and
 published atomically under a per-crate lock. An incomplete or corrupt entry fails
-loudly. Build and quickinstall entries cannot satisfy the default author's-release
-policy. 0.1's entries under `crabx/v1` are never run, since 0.2 has not verified them
+loudly. `--build` and quickinstall entries cannot satisfy the default author's-release
+policy, which caches its own fallback builds under a source 0.2.0 reads as an unattested
+author release, so its `--require-attestation` and attestation ratchet refuse them. 0.1's entries under `crabx/v1` are never run, since 0.2 has not verified them
 and 0.1 ran `--build` in the caller's directory, and stay on disk untouched.
 The next uncached installation removes abandoned `install-*` staging directories
 under that lock. Malformed index or refresh state (`index.json`, `failure.json`) also
@@ -168,7 +171,7 @@ A yank stops an installed release from running unpinned once a check sees it, an
 select an older release. Only one refresh per crate and policy runs at a time, from the
 filesystem root so it never keeps the current directory in use. Network
 errors leave the cached release available. Each repeated error for a release is reported
-once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, doubling to
+once, on the next unpinned invocation, as is a release the refresh compiled. Failed refreshes retry after 30 seconds, doubling to
 at most 30 minutes; a successful refresh resets that delay, and only a successful check
 counts toward the daily limit. Conditional index requests retain their validator even when
 installation fails. Installing a release also makes the requests binstalk or Cargo need,
@@ -178,9 +181,9 @@ five-minute total timeout and a 30-second read timeout.
 Unix uses `exec`, preserving the PID, arguments, standard streams, signals, and exit
 status. Windows starts the program with inherited console and standard streams and
 returns its exit code. crabx itself must run on glibc to download prebuilt Linux binaries;
-musl builds of crabx direct users to `--build`. On glibc Linux, crabx runs a crate's
+musl builds of crabx compile every crate. On glibc Linux, crabx runs a crate's
 `-linux-gnu` build, or its static `-linux-musl` build when discovery finds no gnu one; a
-dynamically linked musl build is an error naming `--build`.
+dynamically linked musl build counts as missing.
 
 `crabx init`, run in a public crate repository, writes the caller of
 [crabx's release pipeline](pipeline/README.md) to

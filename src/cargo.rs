@@ -1,4 +1,4 @@
-//! Running Cargo for `--build` away from the caller's directory, which may be an untrusted checkout.
+//! Running Cargo for source builds away from the caller's directory, which may be an untrusted checkout.
 // A registry `cargo install` reads `.cargo/config.toml` and `.cargo/config` in CARGO_HOME and its
 // ancestors, and rustup picks the toolchain from `rust-toolchain.toml` in its working directory and
 // ancestors, so Cargo runs from the filesystem root and a CARGO_HOME whose path holds no other
@@ -135,7 +135,7 @@ impl Toolchain {
 		];
 		if let Some(file) = untrusted(&dir, &home, &files)? {
 			bail!(
-				"no clean directory to run Cargo in: {} would configure it; remove it or run without --build",
+				"no clean directory to run Cargo in: {} would configure it; remove it",
 				file.display()
 			);
 		}
@@ -189,7 +189,7 @@ impl Toolchain {
 			.find(|candidate| executable(candidate))
 			.with_context(|| {
 				format!(
-					"--build needs cargo and a Rust toolchain; found no {:?} on PATH",
+					"compiling needs cargo and a Rust toolchain, from https://rustup.rs; found no {:?} on PATH",
 					name.display()
 				)
 			})
