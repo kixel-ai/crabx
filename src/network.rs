@@ -105,7 +105,7 @@ pub struct Unpinned {
 /// The release an unpinned run executes: the newest installed one `age` allows at `now` by the cached
 /// index, else the newest one it allows, installed first. Only a cache without an index fetches it.
 pub fn unpinned(cache: &Cache, name: &str, args: &Args, age: MinimumAge, now: SystemTime) -> Result<Unpinned> {
-	report_refresh_error(cache, args.require_attestation)?;
+	report_refresh(cache, name, args.require_attestation)?;
 	let index = match Index::load(cache)? {
 		Some(index) => index,
 		// Nothing cached says which release is old enough and not yanked.
@@ -179,7 +179,12 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 			return Ok(());
 		};
 		pending = Some(version.clone());
+		let cached = cache.load(version)?.is_some();
 		let record = install::resolve(cache, name, version, args).await?;
+		// No terminal sees this refresh compile, so the next run says it did.
+		if !cached && !args.build && record.source == cache::BUILT {
+			cache::atomic(&compiled(cache), version.to_string().as_bytes())?;
+		}
 		// A release cached before the policy refused it is downloaded again, in case its author attested
 		// it since; still unattested, it fails here, so the next run reports why it runs an older one.
 		if cache.ratchet.admit(&record, args.require_attestation).is_err() {
@@ -329,11 +334,40 @@ pub fn spawn_refresh(spec: &Spec, args: &Args, age: MinimumAge) -> Result<()> {
 	Ok(())
 }
 
-pub fn report_refresh_error(cache: &Cache, strict: bool) -> Result<()> {
+/// Report, once, a release the last background update compiled and any error it hit.
+pub fn report_refresh(cache: &Cache, name: &str, strict: bool) -> Result<()> {
+	if let Some(version) = take_compiled(cache)? {
+		eprintln!(
+			"crabx: the last background update compiled {name}@{version} with cargo install, since it has no usable prebuilt release for {}",
+			binstalk::TARGET
+		);
+	}
 	if let Some(error) = take_refresh_error(cache, strict)? {
 		eprintln!("crabx: the last background update failed: {error}");
 	}
 	Ok(())
+}
+
+/// Where a background update records the release it compiled, until a run reports it.
+fn compiled(cache: &Cache) -> PathBuf {
+	cache.root.join("compiled")
+}
+
+fn take_compiled(cache: &Cache) -> Result<Option<String>> {
+	let path = compiled(cache);
+	if !path.try_exists()? {
+		return Ok(None);
+	}
+	let Some(_lock) = cache.try_refresh_lock()? else {
+		return Ok(None);
+	};
+	let version = match fs::read_to_string(&path) {
+		Ok(version) => version,
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+		Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+	};
+	fs::remove_file(&path)?;
+	Ok(Some(version))
 }
 
 fn take_refresh_error(cache: &Cache, strict: bool) -> Result<Option<String>> {

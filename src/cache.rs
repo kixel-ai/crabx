@@ -14,6 +14,9 @@ pub struct Cache {
 	pub ratchet: Ratchet,
 }
 
+/// The `source` of a release Cargo compiled from crates.io.
+pub const BUILT: &str = "cargo install --locked";
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Record {
@@ -31,7 +34,7 @@ impl Record {
 	/// Whether this is the author's own release, rather than quickinstall's or a source build.
 	// An unknown source counts as the author's, so the ratchet covers it.
 	pub fn author(&self) -> bool {
-		!matches!(self.source.as_str(), "quickinstall" | "cargo install --locked")
+		!matches!(self.source.as_str(), "quickinstall" | BUILT)
 	}
 
 	pub fn binary(&self, requested: Option<&str>, krate: &str) -> Result<&str> {

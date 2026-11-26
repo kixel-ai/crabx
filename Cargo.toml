@@ -1,6 +1,6 @@
 [package]
 name = "crabx"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 rust-version = "1.100"
 description = "Run a Rust CLI from its author's release, without compiling"

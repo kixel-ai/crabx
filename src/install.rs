@@ -476,7 +476,7 @@ fn build(stage: &Path, name: &str, version: &Version) -> Result<Record> {
 	Ok(Record {
 		version: actual,
 		bins,
-		source: "cargo install --locked".into(),
+		source: cache::BUILT.into(),
 	})
 }
 

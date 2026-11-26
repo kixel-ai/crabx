@@ -108,7 +108,7 @@ once per crate; an attested release a crabx without this check (0.1, or a 0.2 re
 afterward does not count until crabx verifies one itself. `--require-attestation` refuses any
 release without a verified attestation from the first run, for CI and other strict callers; it
 excludes `--build` and `--allow-quickinstall`, never compiles a release with no usable prebuilt
-binary, and background updates and launchers keep it.
+binary nor runs one a default run compiled, and background updates and launchers keep it.
 Binstalk's configured minisign checks remain enabled. Optional
 `GH_TOKEN` or `GITHUB_TOKEN` credentials raise GitHub's API rate limit for release
 discovery and attestations; they are sent only to GitHub's API, `api.github.com`. crabx downloads
@@ -170,7 +170,7 @@ A yank stops an installed release from running unpinned once a check sees it, an
 select an older release. Only one refresh per crate and policy runs at a time, from the
 filesystem root so it never keeps the current directory in use. Network
 errors leave the cached release available. Each repeated error for a release is reported
-once, on the next unpinned invocation. Failed refreshes retry after 30 seconds, doubling to
+once, on the next unpinned invocation, as is a release the refresh compiled. Failed refreshes retry after 30 seconds, doubling to
 at most 30 minutes; a successful refresh resets that delay, and only a successful check
 counts toward the daily limit. Conditional index requests retain their validator even when
 installation fails. Installing a release also makes the requests binstalk or Cargo need,

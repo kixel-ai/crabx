@@ -109,10 +109,11 @@ impl Ratchet {
 	}
 
 	/// Admit `record` to be published or run under `required`, refusing an unattested author
-	/// release once the ratchet is active. The returned lock, if any, must be held until the release
-	/// is published or launched, so an activation in between cannot let it through.
+	/// release once the ratchet is active, and anything unattested, a cached source build included,
+	/// under `required`. The returned lock, if any, must be held until the release is published or
+	/// launched, so an activation in between cannot let it through.
 	pub fn admit(&self, record: &Record, required: bool) -> Result<Option<File>> {
-		if record.attested() || !record.author() {
+		if record.attested() || (!record.author() && !required) {
 			return Ok(None);
 		}
 		let refuse = || self.refuse(record, required);
@@ -129,7 +130,7 @@ impl Ratchet {
 
 	/// Whether an unpinned run may choose `record` under `required`.
 	pub fn eligible(&self, record: &Record, required: bool) -> Result<bool> {
-		Ok(record.attested() || !record.author() || !(required || self.active()?))
+		Ok(record.attested() || (!required && (!record.author() || !self.active()?)))
 	}
 
 	fn refuse(&self, record: &Record, required: bool) -> anyhow::Error {
@@ -305,11 +306,17 @@ mod tests {
 			assert!(error.contains(&ratchet.marker().display().to_string()), "{error}");
 			assert!(!ratchet.eligible(record, false).unwrap());
 		}
-		for record in others.iter().chain([&attested]) {
-			for required in [false, true] {
-				assert!(ratchet.admit(record, required).unwrap().is_none());
-				assert!(ratchet.eligible(record, required).unwrap());
-			}
+		for required in [false, true] {
+			assert!(ratchet.admit(&attested, required).unwrap().is_none());
+			assert!(ratchet.eligible(&attested, required).unwrap());
+		}
+		// A source build, which a default run caches beside author releases, never satisfies
+		// --require-attestation.
+		for record in &others {
+			assert!(ratchet.admit(record, false).unwrap().is_none());
+			assert!(ratchet.eligible(record, false).unwrap());
+			assert!(ratchet.admit(record, true).is_err());
+			assert!(!ratchet.eligible(record, true).unwrap());
 		}
 	}
 
