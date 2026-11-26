@@ -20,6 +20,7 @@ up. `npm/crabx.js` already ignores SIGINT on Windows for this reason.
 - Check it in e2e.yml's Windows legs with a crate that sleeps after
   Ctrl-C, or explain in the PR why the console can't be driven there.
 
-## Hosts
-
-- windows - console Ctrl-C behavior
+Decided 2026-11-25 (maintainer, /quest-plan): ✅ no `Hosts`; it runs
+anywhere, with e2e.yml's Windows legs as its check (rejected: keep `Hosts:
+windows`; drop the quest). No host `every-host` lists runs Windows, so a
+`windows` host requirement left the quest unstartable.
