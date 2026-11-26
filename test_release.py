@@ -106,22 +106,107 @@ class Plan(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "delete them"):
                 self.run_crate([("0.0.1", False)], bare)
 
-    def test_npm_plan_publishes_when_any_package_is_missing(self):
-        def fetch(url):
+    def run_npm_plan(self, lagging):
+        """npm_plan's outputs when npm has 0.2.0 of every package and install resolves all but lagging."""
+
+        def fetch(url, accept="*/*", timeout=60):
             if url == r.INDEX:
                 return index(("0.1.0", False), ("0.2.0", False))
-            return None if url.endswith("/@kixel/crabx-win32-arm64/0.2.0") else b"{}"
+            name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
+            return json.dumps({"versions": {} if name in lagging else {"0.2.0": {}}}).encode()
 
         with tempfile.TemporaryDirectory() as temp:
             out = Path(temp) / "out"
             with patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}), patch.object(r, "fetch", side_effect=fetch):
                 r.npm_plan()
-            self.assertEqual(out.read_text(), "version=0.2.0\npublish=true\ninstall=true\n")
+            return out.read_text()
+
+    def test_npm_plan_publishes_until_npm_install_resolves_every_package(self):
+        # A package npm lacks, or one it has but does not serve yet, needs the npm job, which waits.
+        self.assertEqual(self.run_npm_plan({"@kixel/crabx-win32-arm64"}), "version=0.2.0\npublish=true\ninstall=true\n")
+        self.assertEqual(self.run_npm_plan(set()), "version=0.2.0\npublish=false\ninstall=true\n")
 
     def test_missing_looks_up_the_version_npm_stores(self):
         # npm drops build metadata on publish, so 0.2.0+build-5 is stored as 0.2.0.
         with patch.object(r, "fetch", side_effect=lambda url: b"{}" if url.endswith("/0.2.0") else None):
             self.assertEqual(r.missing("0.2.0+build-5"), [])
+
+
+class Clock:
+    """A fake time module whose sleep advances its monotonic clock."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def monotonic(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+
+
+class WaitServed(unittest.TestCase):
+    """publish returns only once npm install resolves every package at the version."""
+
+    def wait(self, listed_after, latency=0):
+        """Run wait_served("0.2.0+build-5"), where each package, in each form, lists 0.2.0 from its time in listed_after on, and each request takes latency seconds."""
+        clock = self.clock = Clock()
+        polls = []
+
+        def fetch(url, accept="*/*", timeout=60):
+            self.assertIn(accept, r.INSTALL_ACCEPTS)
+            # The deadline bounds each request, as urlopen's timeout would cut it short.
+            self.assertGreater(timeout, 0)
+            self.assertLessEqual(clock.now + timeout, r.SERVE_BOUND + r.SERVE_POLL)
+            clock.now += min(latency, timeout)
+            if latency > timeout:
+                raise TimeoutError("timed out")
+            name = url.removeprefix(f"{r.NPM}/").replace("%2f", "/")
+            polls.append(name)
+            versions = {"0.1.0": {}}
+            if clock.now >= listed_after.get((name, accept), listed_after.get(name, 0)):
+                versions["0.2.0"] = {}
+            return json.dumps({"name": name, "versions": versions}).encode()
+
+        with patch.object(r, "time", clock), patch.object(r, "fetch", side_effect=fetch):
+            r.wait_served("0.2.0+build-5")
+        return clock.now, polls
+
+    def test_returns_at_once_when_npm_serves_every_package(self):
+        now, polls = self.wait({})
+        self.assertEqual(now, 0)
+        self.assertEqual(sorted(set(polls)), sorted(r.package_names()))
+
+    def test_waits_until_every_package_is_served(self):
+        self.assertEqual(self.wait({"@kixel/crabx": 25, "@kixel/crabx-win32-arm64": 5})[0], 30)
+
+    def test_waits_for_each_form_npm_install_fetches(self):
+        # The full and abbreviated documents are cached apart, so one can lag the other.
+        for accept in r.INSTALL_ACCEPTS:
+            self.assertEqual(self.wait({("@kixel/crabx-linux-x64-gnu", accept): 15})[0], 20)
+
+    def test_fails_naming_the_packages_still_missing_at_the_bound(self):
+        with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + 1})
+
+    def test_a_version_listed_in_the_last_interval_passes(self):
+        # Polls fall at 590 and 600 seconds, so a version listed between them is seen at the bound.
+        self.assertEqual(self.wait({"@kixel/crabx": r.SERVE_BOUND - 5})[0], r.SERVE_BOUND)
+
+    def test_slow_requests_stay_within_the_bound(self):
+        # A poll makes up to 14 requests, so slow ones would overrun the bound unless each gets
+        # only what is left of it, plus the last poll's SERVE_POLL to answer.
+        with self.assertRaisesRegex(SystemExit, r"^npm still lacks @kixel/crabx at 0.2.0\+build-5 after 600 seconds$"):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + r.SERVE_POLL}, latency=6)
+        self.assertLessEqual(self.clock.now, r.SERVE_BOUND + r.SERVE_POLL)
+        # A request the deadline cuts short fails the wait as a registry error.
+        with self.assertRaises(TimeoutError):
+            self.wait({"@kixel/crabx": r.SERVE_BOUND + r.SERVE_POLL}, latency=59)
+        self.assertEqual(self.clock.now, r.SERVE_BOUND + r.SERVE_POLL)
+
+    def test_an_absent_package_is_unserved(self):
+        with patch.object(r, "fetch", return_value=None):
+            self.assertEqual(r.unserved("0.2.0"), r.package_names())
 
 
 class Pack(unittest.TestCase):
