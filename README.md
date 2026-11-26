@@ -144,7 +144,8 @@ Caches live in the operating system's user cache directory, under
 `crabx/v2/<host>/<trust-policy>/<crate>/<version>`. Entries are staged, verified, and
 published atomically under a per-crate lock. An incomplete or corrupt entry fails
 loudly. `--build` and quickinstall entries cannot satisfy the default author's-release
-policy, which caches its own fallback builds. 0.1's entries under `crabx/v1` are never run, since 0.2 has not verified them
+policy, which caches its own fallback builds under a source 0.2.0 reads as an unattested
+author release, so its `--require-attestation` and attestation ratchet refuse them. 0.1's entries under `crabx/v1` are never run, since 0.2 has not verified them
 and 0.1 ran `--build` in the caller's directory, and stay on disk untouched.
 The next uncached installation removes abandoned `install-*` staging directories
 under that lock. Malformed index or refresh state (`index.json`, `failure.json`) also

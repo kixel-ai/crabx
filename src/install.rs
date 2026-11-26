@@ -63,7 +63,11 @@ async fn install(cache: &Cache, name: &str, version: &Version, args: &Args) -> R
 					binstalk::TARGET
 				);
 			}
-			build(stage.path(), name, version)?
+			let mut record = build(stage.path(), name, version)?;
+			if !args.build {
+				record.source = cache::FALLBACK.into();
+			}
+			record
 		}
 	};
 	// Held across publishing, so a concurrent activation refuses this release instead of caching it.

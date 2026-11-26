@@ -288,6 +288,7 @@ mod tests {
 		let others = [
 			record("2.0.0", "quickinstall"),
 			record("2.0.0", "cargo install --locked"),
+			record("2.0.0", crate::cache::FALLBACK),
 		];
 		// --require-attestation refuses before anything was verified.
 		for record in [&unattested, &elsewhere] {

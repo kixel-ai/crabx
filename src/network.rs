@@ -179,16 +179,17 @@ pub async fn refresh(cache: &Cache, name: &str, args: &Args, age: MinimumAge) ->
 			return Ok(());
 		};
 		pending = Some(version.clone());
-		let cached = cache.load(version)?.is_some();
-		let record = install::resolve(cache, name, version, args).await?;
-		// No terminal sees this refresh compile, so the next run says it did.
-		if !cached && !args.build && record.source == cache::BUILT {
-			cache::atomic(&compiled(cache), version.to_string().as_bytes())?;
-		}
+		let mut installed = cache.load(version)?.is_none();
+		let mut record = install::resolve(cache, name, version, args).await?;
 		// A release cached before the policy refused it is downloaded again, in case its author attested
 		// it since; still unattested, it fails here, so the next run reports why it runs an older one.
 		if cache.ratchet.admit(&record, args.require_attestation).is_err() {
-			install::reinstall(cache, name, version, args).await?;
+			record = install::reinstall(cache, name, version, args).await?;
+			installed = true;
+		}
+		// No terminal sees this refresh compile, so the next run says it did.
+		if installed && record.source == cache::FALLBACK {
+			cache::atomic(&compiled(cache), version.to_string().as_bytes())?;
 		}
 		Ok(())
 	}
