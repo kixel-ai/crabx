@@ -7,12 +7,14 @@
 # CRABX_INSTALL_DIR the directory instead of ~\.local\bin.
 # A script block keeps its variables out of the session `iex` runs it in, and errors throw
 # rather than exit, which would close that session.
-param([Parameter(ValueFromRemainingArguments)][string[]]$Crates)
+# The empty param block gives iex its own $args, so it can't take the caller's, and adds no common
+# parameters, which would consume an option-like argument such as -Verbose before it is checked.
+param()
 & {
 	$ErrorActionPreference = 'Stop'
 	$ProgressPreference = 'SilentlyContinue'
 	# The crates to install: the arguments, then CRABX_INSTALL's words.
-	$specs = @(if ($null -ne $Crates) { $Crates }) + @($env:CRABX_INSTALL -split '\s+' | Where-Object { $_ })
+	$specs = @($args) + @($env:CRABX_INSTALL -split '\s+' | Where-Object { $_ })
 	# crabx install checks each spec itself; this keeps one from becoming an option of crabx install,
 	# or a quote from changing how Windows PowerShell 5.1 passes it.
 	foreach ($spec in $specs) {
@@ -127,4 +129,4 @@ param([Parameter(ValueFromRemainingArguments)][string[]]$Crates)
 		& $crabx install $spec
 		if ($LASTEXITCODE -ne 0) { throw "crabx install: crabx install $spec failed with exit code $LASTEXITCODE" }
 	}
-}
+} @args
