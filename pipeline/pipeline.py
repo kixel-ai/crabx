@@ -153,6 +153,11 @@ def releasable(package):
     return bool(package) and package.get("publish") != False and bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]*", package.get("name", "")))
 
 
+def manifests():
+    """Every tracked Cargo.toml, unquoted, as Git would otherwise escape a non-ASCII path."""
+    return [path for path in run("git", "ls-files", "-z", "**/Cargo.toml", "Cargo.toml").split("\0") if path]
+
+
 def discover():
     workflow = os.environ["CALLER_WORKFLOW"].split("/.github/", 1)[1].split("@", 1)[0]
     added = run("git", "log", "--follow", "--diff-filter=A", "--format=%cI", "--", ".github/" + workflow).splitlines()
@@ -160,7 +165,7 @@ def discover():
         raise ValueError("cannot find when caller workflow was added")
     since = datetime.datetime.fromisoformat(added[-1])
     names = set()
-    for path in run("git", "ls-files", "**/Cargo.toml", "Cargo.toml").splitlines():
+    for path in manifests():
         package = tomllib.loads(Path(path).read_text()).get("package", {})
         if releasable(package):
             names.add(package["name"])
@@ -193,7 +198,8 @@ def unpublished():
     """Plan this commit's binary crates at their manifest versions, as discovery would find them once published."""
     repo = "https://github.com/" + os.environ["GITHUB_REPOSITORY"]
     root = Path.cwd().resolve()
-    tracked = {(root / path).resolve() for path in run("git", "ls-files", "**/Cargo.toml", "Cargo.toml").splitlines()}
+    tracked = {(root / path).resolve() for path in manifests()}
+    env = {key: value for key, value in os.environ.items() if key not in RUNNER_ENV}
     seen = set()
     items = []
     for manifest in sorted(tracked):
@@ -201,7 +207,7 @@ def unpublished():
         if manifest in seen or not releasable(tomllib.loads(manifest.read_text()).get("package", {})):
             continue
         # Cargo resolves inherited fields, such as `version.workspace = true`, without building anything.
-        metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent)))
+        metadata = json.loads(run("cargo", "metadata", "--no-deps", "--format-version=1", "--manifest-path", str(manifest), cwd=str(manifest.parent), env=env))
         for package in metadata["packages"]:
             path = Path(package["manifest_path"]).resolve()
             if path in seen or path not in tracked:

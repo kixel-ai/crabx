@@ -39,8 +39,8 @@ before publishing. `crabx-dry-run.yml` plans each tracked binary crate whose man
 names the repository, at the calling commit and its manifest version, and builds it on
 every target as the pipeline will once it is published. It uploads, attests, tags, and
 releases nothing, so it needs only `contents: read` and runs from any branch or event;
-it fails when no crate qualifies. Gate publishing on it, pinned to the same commit as
-the caller above (from `pipeline-v1.1.0`):
+it fails when no crate qualifies. Gate publishing on it, pinned to the `pipeline-v1.1.0`
+commit or later, the first to hold it:
 
 ```yaml
 jobs:

@@ -246,7 +246,7 @@ class Pipeline(unittest.TestCase):
     def unpublished(self, members=None):
         """Run the real unpublished() with Cargo on a git workspace whose tracked members are given as manifests."""
         members = members or {
-            "cli": '[package]\nname="demo"\nversion.workspace=true\nrepository.workspace=true\n[[bin]]\nname="demo"\npath="main.rs"\n',
+            "cli-é": '[package]\nname="demo"\nversion.workspace=true\nrepository.workspace=true\n[[bin]]\nname="demo"\npath="main.rs"\n',
             "lib": '[package]\nname="demo-lib"\nversion="0.1.0"\nrepository.workspace=true\n[lib]\npath="lib.rs"\n',
             "private": '[package]\nname="demo-private"\nversion="0.1.0"\npublish=false\nrepository.workspace=true\n[[bin]]\nname="private"\npath="main.rs"\n',
             "fork": '[package]\nname="demo-fork"\nversion="0.1.0"\nrepository="https://github.com/other/demo"\n[[bin]]\nname="fork"\npath="main.rs"\n',
@@ -273,7 +273,8 @@ class Pipeline(unittest.TestCase):
 
     def test_dry_run_plans_this_commits_tracked_binary_crates(self):
         # Only the tracked, publishable binary crate naming this repository, at its inherited version.
-        self.assertEqual(self.unpublished(), [{k: v for k, v in ITEM.items() if k != "tag"}])
+        # A non-ASCII path, which Git quotes unless asked not to, plans as written.
+        self.assertEqual(self.unpublished(), [{**{k: v for k, v in ITEM.items() if k != "tag"}, "path": "cli-é"}])
         # A gate with nothing to build would pass vacuously, so it fails instead.
         with self.assertRaisesRegex(ValueError, "nothing to build"):
             self.unpublished({"lib": '[package]\nname="demo-lib"\nversion="0.1.0"\n[lib]\npath="lib.rs"\n'})
