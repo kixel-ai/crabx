@@ -11,7 +11,7 @@ before [attestation binding](https://github.com/kixel-ai/crabx/pull/45) refused 
 Decided 2026-11-25 (maintainer, /quest-plan): ✅ use `ripgrep@14.1.1` now (rejected: keep waiting
 for token-max to republish through crabx's pipeline; drop the check). The earlier plan waited on
 token-max shipping a pipeline-signed, musl-only release, but crabx's pipeline builds glibc Linux
-archives (and, once [musl builds](/quest/m1/pipeline-musl.md) land, musl beside them), so that
+archives (and musl beside them), so that
 wait would never clear. On x86_64, ripgrep 14.1.1 ships only an `x86_64-unknown-linux-musl`
 archive, with no attestation. On 2026-11-25, crabx 0.2.0 ran it on x86_64 glibc Linux from its static build and
 recorded `author release (no published attestation)`.

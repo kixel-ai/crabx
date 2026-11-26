@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -20,6 +21,8 @@ import zipfile
 TARGETS = [
     ("x86_64-unknown-linux-gnu", "ubuntu-24.04"),
     ("aarch64-unknown-linux-gnu", "ubuntu-24.04-arm"),
+    ("x86_64-unknown-linux-musl", "ubuntu-24.04"),
+    ("aarch64-unknown-linux-musl", "ubuntu-24.04-arm"),
     ("x86_64-apple-darwin", "macos-15"),
     ("aarch64-apple-darwin", "macos-15"),
     ("x86_64-pc-windows-msvc", "windows-latest"),
@@ -197,16 +200,40 @@ def build(item, target):
     if not bins:
         raise ValueError("crate has no binaries")
     command = ["cargo-zigbuild", "zigbuild"] if "linux" in target else ["cargo", "build"]
-    build_target = target + ".2.28" if "linux" in target else target
+    build_target = target + ".2.28" if target.endswith("-linux-gnu") else target
     # A workspace root's manifest would otherwise build its default members.
     run(*command, "--locked", "--release", "--package", f"{item['name']}@{item['version']}", "--bins", "--all-features", "--manifest-path", manifest, "--target", build_target, cwd=str(Path(manifest).parent), env=env)
+    release = Path(metadata["target_directory"]) / target / "release"
+    files = [binary + (".exe" if "windows" in target else "") for binary in bins]
+    # A crate's build script or Cargo config can link a musl build dynamically, which then
+    # runs only where musl's loader is installed.
+    if target.endswith("-linux-musl"):
+        for filename in files:
+            if interpreter(release / filename, target):
+                raise ValueError(f"{filename} for {target} links dynamically; a musl build must be static, so drop whatever links it dynamically")
     out = Path("archives")
     out.mkdir(exist_ok=True)
     root = asset(item, target).removesuffix(".tgz")
     with tarfile.open(out / asset(item, target), "w:gz") as archive:
-        for binary in bins:
-            filename = binary + (".exe" if "windows" in target else "")
-            archive.add(Path(metadata["target_directory"]) / target / "release" / filename, arcname=root + "/" + filename)
+        for filename in files:
+            archive.add(release / filename, arcname=root + "/" + filename)
+
+
+def interpreter(path, target):
+    """Whether a 64-bit ELF executable for target's machine names a program interpreter, so it links dynamically."""
+    machine = {"x86_64": 62, "aarch64": 183}[target.split("-", 1)[0]]
+    data = path.read_bytes()
+    if len(data) < 64 or data[:6] != b"\x7fELF\x02\x01":
+        raise ValueError(f"{path.name} is not 64-bit little-endian ELF")
+    if struct.unpack_from("<H", data, 0x12)[0] != machine:
+        raise ValueError(f"{path.name} is not built for {target}")
+    (offset,) = struct.unpack_from("<Q", data, 0x20)
+    size, count = struct.unpack_from("<HH", data, 0x36)
+    # Linux's loader requires exactly its own entry size and at least one entry.
+    if size != 56 or count == 0 or offset + size * count > len(data):
+        raise ValueError(f"{path.name} has malformed or truncated ELF program headers")
+    PT_INTERP = 3
+    return any(struct.unpack_from("<I", data, offset + index * size)[0] == PT_INTERP for index in range(count))
 
 
 def built(item):

@@ -86,8 +86,8 @@ def targets():
     spec = importlib.util.spec_from_file_location("pipeline", HERE / "pipeline/pipeline.py")
     pipeline = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(pipeline)
-    if {target for target, _ in pipeline.TARGETS} != set(NPM_TARGETS):
-        raise ValueError("the pipeline's targets differ from crabx's npm packages")
+    if not set(NPM_TARGETS) <= {target for target, _ in pipeline.TARGETS}:
+        raise ValueError("an npm package's target is missing from the pipeline")
     return pipeline.TARGETS
 
 
@@ -127,7 +127,10 @@ def crate():
 def nightly():
     """What e2e.yml builds and runs: this commit's crabx on every target, whatever crates.io holds."""
     version = checkout_version()
-    output(version=version, builds=builds(version))
+    everything = builds(version)
+    # A musl crabx compiles every crate, which e2e.sh, run without a toolchain, refuses.
+    runs = {"include": [build for build in everything["include"] if build["target"] in NPM_TARGETS]}
+    output(version=version, builds=everything, e2e=runs)
 
 
 # npm refuses the unscoped `crabx` as too similar to `rax`.

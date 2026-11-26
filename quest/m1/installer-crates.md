@@ -32,4 +32,4 @@ drops cargo-dist, whose `token-max-installer.sh`/`.ps1` max.kixel.me's `/install
   crabx release: `crabx install` shipped in 0.2.0.
 
 Non-goal: installing on hosts without glibc 2.28, which waits on crabx's own musl release (see
-[musl builds](/quest/m1/pipeline-musl.md)).
+[the pipeline release](/quest/m1/pipeline-v1.1.md)).

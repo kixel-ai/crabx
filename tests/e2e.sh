@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Run a built crabx against the live crates.io, GitHub, and Sigstore with no Rust toolchain,
-# then again with the network blocked, from its cache. e2e.yml runs it on every target.
+# then again with the network blocked, from its cache. e2e.yml runs it on every target but
+# musl, whose crabx compiles every crate.
 #   tests/e2e.sh CRABX TARGET
 # The cache must not hold the pinned versions yet. Blocking the network takes sudo on Linux
 # and an administrator on Windows, where it adds a firewall rule for CRABX until exit.

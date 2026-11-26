@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import struct
 import tarfile
 import tempfile
 import unittest
@@ -19,6 +20,16 @@ p = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(p)
 ITEM = {"name": "demo", "version": "1.2.3", "sha": "a" * 40, "path": "cli", "tag": "demo-v1.2.3"}
 REPO = "https://github.com/example/demo"
+
+
+def elf(machine=62, kinds=(1,), entry=56):
+    """A 64-bit little-endian ELF header and program headers of the given types."""
+    header = bytearray(64)
+    header[:6] = b"\x7fELF\x02\x01"
+    struct.pack_into("<H", header, 0x12, machine)
+    struct.pack_into("<Q", header, 0x20, 64)
+    struct.pack_into("<HH", header, 0x36, entry, len(kinds))
+    return bytes(header) + b"".join(struct.pack("<I", kind) + bytes(52) for kind in kinds)
 
 
 def crate(files):
@@ -127,6 +138,36 @@ class Pipeline(unittest.TestCase):
             with patch.object(p.urllib.request, "urlopen", return_value=archive):
                 self.assertEqual(p.published("demo", "1.2.3", REPO) is not None, expected)
 
+    def test_musl_build_must_be_static(self):
+        metadata = {"target_directory": "target", "packages": [{"name": "demo", "version": "1.2.3", "targets": [{"name": "demo", "kind": ["bin"]}]}]}
+        PT_LOAD, PT_INTERP = 1, 3
+        cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as tmp:
+            os.chdir(tmp)
+            try:
+                for target, binary, error in (
+                    ("aarch64-unknown-linux-musl", elf(183, (PT_LOAD, PT_INTERP)), "links dynamically"),
+                    ("x86_64-unknown-linux-musl", elf(183), "not built for"),
+                    ("x86_64-unknown-linux-musl", b"#!/bin/sh\n" + bytes(64), "not 64-bit"),
+                    ("x86_64-unknown-linux-musl", elf(kinds=()), "malformed"),
+                    ("x86_64-unknown-linux-musl", elf(entry=32), "malformed"),
+                    ("x86_64-unknown-linux-musl", elf(kinds=(PT_LOAD, PT_INTERP))[:100], "truncated"),
+                    ("x86_64-unknown-linux-gnu", elf(kinds=(PT_LOAD, PT_INTERP)), None),
+                ):
+                    release = Path("target", target, "release")
+                    release.mkdir(parents=True, exist_ok=True)
+                    (release / "demo").write_bytes(binary)
+                    with patch.object(p, "run", side_effect=[json.dumps(metadata), ""]):
+                        if error is None:
+                            p.build(ITEM, target)
+                            continue
+                        with self.assertRaisesRegex(ValueError, error):
+                            p.build(ITEM, target)
+                    # No archive of a refused build reaches the publish job.
+                    self.assertFalse(Path("archives", p.asset(ITEM, target)).exists())
+            finally:
+                os.chdir(cwd)
+
     def test_template_name(self):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo", "CALLER_WORKFLOW": "example/demo/.github/workflows/binaries.yml@main"}), patch.object(p, "run", side_effect=["2026-01-01T00:00:00+00:00", "Cargo.toml"]), patch.object(Path, "read_text", return_value='[package]\nname="{{project-name}}"'), patch.object(p, "request") as request:
             self.assertEqual(p.discover(), [])
@@ -138,23 +179,24 @@ class Pipeline(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             os.chdir(tmp)
             try:
-                for target in ("x86_64-unknown-linux-gnu", "x86_64-pc-windows-msvc"):
+                for target in ("x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"):
                     exe = ".exe" if "windows" in target else ""
                     release = Path("target", target, "release")
                     release.mkdir(parents=True, exist_ok=True)
                     for binary in ("demo", "tool"):
-                        (release / (binary + exe)).write_text(binary)
+                        (release / (binary + exe)).write_bytes(elf() + binary.encode())
                     with patch.object(p, "run", side_effect=[json.dumps(metadata), ""]) as run:
                         p.build(ITEM, target)
-                    self.assertEqual(run.call_args_list[1].args[-1], target + (".2.28" if "linux" in target else ""))
+                    # glibc's floor is a zigbuild target suffix; musl links its own libc statically.
+                    self.assertEqual(run.call_args_list[1].args[-1], target + (".2.28" if target.endswith("-gnu") else ""))
                     args = run.call_args_list[1].args
                     self.assertEqual(args[args.index("--package") + 1], "demo@1.2.3")
                     root = f"demo-{target}-v1.2.3"
                     with tarfile.open(Path("archives", root + ".tgz")) as archive:
                         self.assertEqual(sorted(archive.getnames()), [f"{root}/demo{exe}", f"{root}/tool{exe}"])
-                        self.assertEqual(archive.extractfile(f"{root}/tool{exe}").read(), b"tool")
+                        self.assertEqual(archive.extractfile(f"{root}/tool{exe}").read(), elf() + b"tool")
                 # A crate missing any archive is not attested.
-                p.built({**ITEM, "targets": ["x86_64-unknown-linux-gnu"]})
+                p.built({**ITEM, "targets": ["x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl"]})
                 with self.assertRaisesRegex(ValueError, "missing archive"):
                     p.built(ITEM)
             finally:
@@ -173,7 +215,7 @@ class Pipeline(unittest.TestCase):
         with patch.dict(os.environ, {"GITHUB_REPOSITORY": "example/demo"}), patch.object(p, "tag", return_value=ITEM["tag"]), patch.object(p, "api", return_value={"id": 7}), patch.object(p, "run", return_value=json.dumps(existing)) as run, patch.object(Path, "is_file", return_value=True):
             p.publish(ITEM)
         uploads = [call.args for call in run.call_args_list if call.args[:3] == ("gh", "release", "upload")]
-        self.assertEqual(len(uploads), 5)
+        self.assertEqual(len(uploads), len(p.TARGETS) - 1)
         self.assertNotIn("archives/" + first, [args[4] for args in uploads])
 
     def discovered(self):
@@ -233,7 +275,7 @@ class Pipeline(unittest.TestCase):
             found = self.outputs(mode, items)
             self.assertIs(found["any"], True)
             builds = found["builds"]["include"]
-            self.assertEqual(len(builds), 6 if mode == "fixture" else 5)
+            self.assertEqual(len(builds), len(p.TARGETS) if mode == "fixture" else len(p.TARGETS) - 1)
             for build in builds:
                 self.assertLessEqual(reads("crabx-build.yml"), build.keys(), mode)
                 self.assertEqual(build["os"], dict(p.TARGETS)[build["target"]])
@@ -288,21 +330,21 @@ class Pipeline(unittest.TestCase):
         artifacts = [self.uploaded(ITEM, t, n) for n, t in enumerate(all_targets)]
         jobs = [self.job(ITEM, t) for t in all_targets]
         found = self.inventory(ITEM, artifacts, jobs)
-        self.assertEqual({t: e["id"] for t, e in found.items()}, dict(zip(all_targets, range(6))))
+        self.assertEqual({t: e["id"] for t, e in found.items()}, dict(zip(all_targets, range(len(all_targets)))))
         # A backfill of one missing target needs only that target's artifact and job.
         last = {**ITEM, "targets": all_targets[-1:]}
         self.assertEqual(list(self.inventory(last, artifacts[-1:], jobs[-1:])), all_targets[-1:])
         # Another crate's failed build or duplicate artifact holds back only that crate.
         other = {**ITEM, "name": "other"}
-        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(other, all_targets[0], 50)] * 2, jobs + [self.job(other, all_targets[0], "failure")])), 6)
+        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(other, all_targets[0], 50)] * 2, jobs + [self.job(other, all_targets[0], "failure")])), len(all_targets))
         # "Re-run failed jobs" keeps the prior attempt's successful builds and their artifacts.
         rerun = jobs[1:] + [self.job(ITEM, all_targets[0], "failure"), self.job(ITEM, all_targets[0], attempt=2)]
-        self.assertEqual(len(self.inventory(ITEM, artifacts, rerun)), 6)
+        self.assertEqual(len(self.inventory(ITEM, artifacts, rerun)), len(all_targets))
         # release.yml's pre-publish check of the same targets uploads nothing and is named apart.
         checks = [{**self.job(ITEM, t, "failure", caller="check"), "name": "check / check-" + p.artifact(ITEM, t).removeprefix("crabx-")} for t in all_targets]
-        self.assertEqual(len(self.inventory(ITEM, artifacts, jobs + checks)), 6)
+        self.assertEqual(len(self.inventory(ITEM, artifacts, jobs + checks)), len(all_targets))
         # An expired artifact is neither a duplicate nor an archive.
-        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(ITEM, all_targets[0], 60, expired=True)], jobs)), 6)
+        self.assertEqual(len(self.inventory(ITEM, artifacts + [self.uploaded(ITEM, all_targets[0], 60, expired=True)], jobs)), len(all_targets))
         for case, artifacts_, jobs_, error in (
             ("missing artifact", artifacts[1:], jobs, "found 0"),
             ("only an expired artifact", [{**artifacts[0], "expired": True}] + artifacts[1:], jobs, "found 0"),

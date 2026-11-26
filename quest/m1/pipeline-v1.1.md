@@ -18,5 +18,4 @@ kixel-ai/token-max's move to the pipeline waits on this tag; its quest checks fo
 
 ## Required
 
-- [Musl builds](/quest/m1/pipeline-musl.md) - the targets this release ships
 - [Consumer dry run](/quest/m1/consumer-dry-run.md) - the pre-publish check token-max's release gates on
