@@ -86,7 +86,8 @@
     <li>
       <span class="num">03</span>
       <h3>Run</h3>
-      <p>Runs it with your arguments, and updates it in the background.</p>
+      <p>Runs it with your arguments, then <strong>checks for a newer release in the
+      background</strong> for next time.</p>
     </li>
   </ol>
   <p class="fine">crabx never hosts builds; a crate's repository opts in by publishing them.
@@ -102,18 +103,21 @@
 
 <section class="security" aria-labelledby="security">
   <h2 id="security">Security</h2>
-  <!-- Stub: bullet notes on what to cover; the prose is the author's to write. -->
+  <p class="lede">crabx runs the binary a crate's own repository released, or compiles it from
+  crates.io. Either way, you trust the same author you'd trust with <code>cargo install</code>,
+  and nobody else.</p>
+  <p class="lede">I could build every crate myself, but then you'd be trusting me too. A service
+  that compiles strangers' code and serves binaries to everyone is a juicy target, and its
+  binaries aren't the ones the author shipped. So maintainers opt in by publishing their own.</p>
   <ul class="points">
-    <li>Why maintainers opt in instead of crabx hosting builds: you run the binary the crate's
-    author released, so you trust the same people you already trust with <code>cargo install</code>.
-    A central build service would be one target holding every crate's binaries.</li>
     <li>When a release has GitHub attestations, crabx verifies them and requires the signer to be
-    the crate's repository or crabx's pipeline running in it. <strong>A bad attestation is an
-    error, never a warning.</strong></li>
-    <li>Once crabx has verified an attested release of a crate, it refuses that crate's unattested ones.</li>
-    <li>An unpinned run waits 24 hours before running a new release, since a hijacked release is
-    usually yanked within hours.</li>
-    <li>Third-party builds from cargo-quickinstall need <code>--allow-quickinstall</code>.</li>
+    the crate's own repository. <strong>A bad attestation is an error, never a warning.</strong></li>
+    <li>Once crabx has seen an attested release of a crate, it refuses an unattested one, since
+    that's what a swapped archive looks like.</li>
+    <li>An unpinned run waits 24 hours before picking up a new release. Hijacked releases usually
+    get yanked faster than that.</li>
+    <li>Third-party builds from cargo-quickinstall are off unless you pass
+    <code>--allow-quickinstall</code>.</li>
   </ul>
 </section>
 

@@ -209,7 +209,7 @@ h2 { margin: 6rem 0 2rem; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 70
 /* Three columns need 3 x 17rem + 2 x 2rem of content plus the section's padding. */
 @media (max-width: 58rem) { .steps::before { display: none; } }
 
-.authors .lede, .motivation .lede { margin: 0 0 1.5rem; }
+.authors .lede, .motivation .lede, .security .lede { margin: 0 0 1.5rem; }
 
 .points { max-width: 48rem; margin: 0; padding-left: 1.2rem; color: var(--muted); }
 .points li { margin-bottom: 0.75rem; }
