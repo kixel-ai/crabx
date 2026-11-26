@@ -18,7 +18,7 @@ CI figures are GitHub-hosted runners' own job and step times; local ones are `fe
 
 Check first:
 
-- Whether a release has run: time `release.yml`'s `check` and `binaries` jobs, which build all eight targets twice so crates.io never holds a version whose binaries fail, and measure the archives it shipped against the size above.
+- Whether a release has run: time `release.yml`'s `check` and `binaries` jobs, which build all eight targets twice (`binaries` builds six until crabx pins pipeline v1.1) so crates.io never holds a version whose binaries fail, and measure the archives it shipped against the size above.
 - Whether the gate's cache still hits: a run whose manifest and lockfile match `main`'s restores it in about 7 s. A pull request that changes the manifest or the lockfile, as Dependabot's Cargo bumps do, runs cold, and each one that lands saves another 506 MB against the repository's 10 GB.
 
 Tried and rejected:

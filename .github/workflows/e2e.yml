@@ -1,7 +1,7 @@
 name: End to end
 
 # The live checks the merge gate can't run: crabx's release build of this commit against the
-# real crates.io, GitHub, and Sigstore on every target, its tests and Windows installer
+# real crates.io, GitHub, and Sigstore on every target but musl, whose crabx compiles every crate, its tests and Windows installer
 # off Linux, and the site and installers Pages serves at crabx.kixel.me. Nightly, outside the gate; a pull request that changes this check runs it too.
 on:
   schedule:

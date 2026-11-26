@@ -125,7 +125,7 @@ def crate():
 
 
 def nightly():
-    """What e2e.yml builds and runs: this commit's crabx on every target, whatever crates.io holds."""
+    """What e2e.yml builds and runs: this commit's crabx on every target, and runs on all but musl, whatever crates.io holds."""
     version = checkout_version()
     everything = builds(version)
     # A musl crabx compiles every crate, which e2e.sh, run without a toolchain, refuses.
