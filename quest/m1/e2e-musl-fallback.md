@@ -19,8 +19,9 @@ recorded `author release (no published attestation)`.
 In `tests/e2e.sh`, on `x86_64-unknown-linux-gnu`:
 
 - `pinned "$1" ripgrep@14.1.1 author "author release (no published attestation)\""`;
-- an `interpreter ripgrep/14.1.1` check that the install is a static build (no program
-  interpreter), the inverse of the `fnox` check;
+- a check that the installed `rg` is a static build (no program interpreter), the inverse of the
+  `fnox` check. `interpreter` opens `bin/<crate name>`, but ripgrep's binary is `rg`, so let it
+  take the executable's name separately from the cache entry;
 - keep `refused token-max@0.0.1`: that release stays branch-signed, so it remains the check that
   an author's branch-signed attestation is refused.
 

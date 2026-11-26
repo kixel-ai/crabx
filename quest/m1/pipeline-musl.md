@@ -4,14 +4,19 @@
 
 Every crate released through crabx's pipeline gets `x86_64-unknown-linux-musl` and
 `aarch64-unknown-linux-musl` archives (static, attested like the rest) beside its glibc ones, so
-its binaries run on any Linux, including Alpine and hosts older than glibc 2.28. crabx and
-binstall keep picking the glibc build on glibc hosts and fall back to the musl build elsewhere.
+scripts and users can download a build that runs on any Linux, including Alpine and hosts older
+than glibc 2.28. On glibc hosts, crabx and binstall keep picking the glibc build.
+
+Non-goal: crabx itself running crates on musl hosts. It refuses prebuilt binaries there
+(`src/install.rs`), and its own Linux builds need glibc 2.28, so a host older than that runs no
+crabx release at all.
 
 ## Plan
 
 Decided 2026-11-25 (maintainer, /quest-plan in kixel-ai/token-max's adoption of the pipeline):
 ✅ add musl beside glibc (rejected: switch Linux to musl only, which gives every crate musl's slow
-allocator, servers like `moq-relay` included; token-max shipping glibc only). token-max moves from
+allocator, servers like `moq-relay` included; token-max shipping glibc only). This supersedes
+the root README's gnu-only decision, which rejected "both". token-max moves from
 cargo-dist to this pipeline to dogfood it, and the maintainer's rule is that a gap the pipeline
 has becomes a crabx quest. token-max needs static builds: `doctor --ssh <host>` downloads the
 release for the remote host's platform and runs it there, and its run script is the documented

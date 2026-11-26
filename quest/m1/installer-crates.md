@@ -17,9 +17,9 @@ release assets, as cargo-dist does, a larger change that adds assets to every cr
 drops cargo-dist, whose `token-max-installer.sh`/`.ps1` max.kixel.me's `/install.sh` and
 `/install.ps1` redirect to today, and points those lines here.
 
-- `install.sh` takes crate specs as arguments and runs the installed crabx's `crabx install` with
-  them. A failed crate install fails the script after crabx itself is installed, and the error
-  says which part failed.
+- `install.sh` takes crate specs as arguments and runs the installed crabx's `crabx install` once
+  per spec, since `crabx install` takes one crate. It stops at the first failure, after crabx
+  itself is installed, and the error names the spec that failed.
 - `irm ... | iex` passes no arguments, so `install.ps1` takes them from an environment variable.
   Recommended: `CRABX_INSTALL` holding space-separated specs, accepted by `install.sh` too, plus
   the `& ([scriptblock]::Create((irm https://crabx.kixel.me/install.ps1))) token-max` form, which

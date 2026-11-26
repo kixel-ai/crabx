@@ -51,6 +51,9 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   as 2.28 (RHEL 8, Debian 10). Rejected: static musl (a slow allocator for moq-relay, and
   native deps often fail to build); both. On musl Linux, crabx fails loudly and points
   at `--build`.
+  Superseded 2026-11-25 (maintainer, /quest-plan in kixel-ai/token-max): the pipeline
+  builds static musl archives beside the gnu ones ([musl builds](/quest/m1/pipeline-musl.md));
+  crabx still refuses prebuilt binaries on musl Linux.
 - ✅ An unpinned run is stale-while-revalidate: it runs the cached latest and checks
   crates.io's sparse index in the background for the next run. Once cached, a pinned version
   runs with no network. Rejected: a check every run; a 24-hour TTL.
