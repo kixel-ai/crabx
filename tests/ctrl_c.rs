@@ -4,7 +4,6 @@ use std::{
 	fs,
 	io::{BufRead, BufReader},
 	os::windows::process::CommandExt,
-	path::Path,
 	process::{Command, Stdio},
 };
 
