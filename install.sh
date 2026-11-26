@@ -1,6 +1,8 @@
 #!/bin/sh
 # Install crabx's release binary:
 #   curl --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.sh | sh
+# Crates to install afterwards with `crabx install` follow as arguments (`sh -s -- CRATE...`) or
+# come space-separated in CRABX_INSTALL.
 # CRABX_VERSION picks a version instead of the newest stable one on crates.io, and
 # CRABX_INSTALL_DIR the directory instead of ~/.local/bin.
 set -eu
@@ -9,6 +11,24 @@ fail() {
     echo "crabx install: $*" >&2
     exit 1
 }
+
+# The crates to install: the arguments, then CRABX_INSTALL's words, split without globbing.
+if [ -n "${CRABX_INSTALL:-}" ]; then
+    set -f
+    # shellcheck disable=SC2086
+    set -- "$@" $CRABX_INSTALL
+    set +f
+fi
+# crabx install checks each spec itself; this keeps one from becoming an option of crabx install.
+for spec in "$@"; do
+    case $spec in
+        [A-Za-z]*) ;;
+        *) fail "invalid crate '$spec'; expected CRATE or CRATE@VERSION" ;;
+    esac
+    case $spec in
+        *[!0-9A-Za-z_.@+-]*) fail "invalid crate '$spec'; expected CRATE or CRATE@VERSION" ;;
+    esac
+done
 
 target() {
     arch=$(uname -m)
@@ -71,6 +91,10 @@ pre='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 build='[0-9A-Za-z-]+'
 echo "$version" | grep -Eq "^$num\\.$num\\.$num(-$pre(\\.$pre)*)?(\\+$build(\\.$build)*)?\$" ||
     fail "invalid version $version; expected MAJOR.MINOR.PATCH as SemVer 2.0.0 defines it"
+# 0.2.0 is the first version with `crabx install`; before it, `crabx install CRATE` would run a crate.
+case $version in
+    0.0.* | 0.1.*) [ $# -eq 0 ] || fail "crabx $version cannot install crates; use 0.2.0 or later" ;;
+esac
 dir=${CRABX_INSTALL_DIR:-$HOME/.local/bin}
 name=crabx-$target-v$version
 url=https://github.com/kixel-ai/crabx/releases/download/crabx-v$version/$name.tgz
@@ -101,3 +125,8 @@ case ":$PATH:" in
     *":$dir:"*) ;;
     *) echo "crabx install: add $dir to PATH to run crabx" >&2 ;;
 esac
+# One crate at a time, as `crabx install` takes one, stopping at the first failure.
+for spec in "$@"; do
+    echo "crabx install: crabx install $spec" >&2
+    "$dir/crabx" install "$spec" || fail "crabx install $spec failed"
+done
