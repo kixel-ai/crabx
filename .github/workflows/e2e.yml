@@ -185,6 +185,8 @@ jobs:
           $env:CRABX_INSTALL = 'fnox@1.50.0'
           Get-Content -Raw install.ps1 | Invoke-Expression
           if ((& (Join-Path $env:CRABX_INSTALL_DIR 'fnox.exe') --version) -ne 'fnox 1.50.0') { throw 'install.ps1 did not install CRABX_INSTALL' }
+          # Launcher records are per user, so the deployed installer below can't install fnox into another directory while this one exists.
+          Remove-Item (Join-Path $env:CRABX_INSTALL_DIR 'fnox.exe')
           $env:CRABX_INSTALL = '--build'
           try { Get-Content -Raw install.ps1 | Invoke-Expression } catch { if ("$_" -notmatch "invalid crate '--build'") { throw }; return }
           throw 'install.ps1 accepted an option as a crate'
