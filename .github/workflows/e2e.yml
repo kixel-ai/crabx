@@ -206,7 +206,7 @@ jobs:
           & (Join-Path $env:CRABX_INSTALL_DIR 'crabx.exe') --version
           powershell -ExecutionPolicy Bypass -c "& ([scriptblock]::Create((curl.exe --proto '=https' --tlsv1.2 -fsSL https://crabx.kixel.me/install.ps1 | Out-String))) fnox@1.50.0"
           if ($LASTEXITCODE) { throw "install.ps1 from crabx.kixel.me failed to install a crate: $LASTEXITCODE" }
-          & (Join-Path $env:CRABX_INSTALL_DIR 'fnox.exe') --version
+          if ((& (Join-Path $env:CRABX_INSTALL_DIR 'fnox.exe') --version) -ne 'fnox 1.50.0') { throw 'install.ps1 from crabx.kixel.me did not install the crate it was given' }
 
   # This checkout's install.sh, which downloads the published release, so it needs no build: a
   # named crate through both forms, and a spec that is an option, which must install nothing.
