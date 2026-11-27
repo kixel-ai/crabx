@@ -75,12 +75,14 @@ class Plan(unittest.TestCase):
 
     def test_crate_skips_a_published_version_even_yanked(self):
         version = r.checkout_version()
-        self.assertEqual(self.run_crate([(version, True)]), {"publish": "false", "builds": '{"include":[]}'})
+        self.assertEqual(self.run_crate([(version, True)]), {"publish": "false"})
 
-    def test_crate_builds_a_new_version_on_every_target_first(self):
-        result = self.run_crate([("0.0.1", False)])
-        self.assertEqual(result["publish"], "true")
-        builds = json.loads(result["builds"])["include"]
+    def test_crate_publishes_a_new_version(self):
+        self.assertEqual(self.run_crate([("0.0.1", False)]), {"publish": "true"})
+
+    def test_nightly_builds_every_target(self):
+        with patch.dict(os.environ, {"GITHUB_SHA": "c" * 40}):
+            builds = r.builds(r.checkout_version())["include"]
         self.assertEqual({b["target"] for b in builds}, set(r.NPM_TARGETS))
         self.assertTrue(all(b["sha"] == "c" * 40 and b["path"] == "." and b["os"] for b in builds))
         # The build workflow reads these fields from each entry, as it does from the pipeline's.
