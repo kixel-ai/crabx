@@ -440,10 +440,10 @@ esac""")
         (self.bin / name).write_text("#!/bin/sh\n" + body + "\n")
         (self.bin / name).chmod(0o755)
 
-    def install(self, **env):
+    def install(self, *args, cwd=None, **env):
         env = {"PATH": f"{self.bin}:{os.environ['PATH']}", "HOME": str(self.temp / "home"), **env}
         env = {"TMPDIR": str(self.tmp), **env}
-        return subprocess.run(["sh", str(HERE / "install.sh")], capture_output=True, text=True, env=env, timeout=30)
+        return subprocess.run(["sh", str(HERE / "install.sh"), *args], capture_output=True, text=True, env=env, cwd=cwd, timeout=30)
 
     def test_installs_the_newest_stable_release(self):
         result = self.install()
@@ -484,6 +484,47 @@ esac""")
         for version in ("0.0.0", "1.2.3-0", "1.2.3-1a", "1.2.3-rc.1.x-y", "1.2.3+001", "1.2.3-rc.1+build-5.7"):
             with self.subTest(version=version):
                 self.assertIn("may not be released yet", self.install(CRABX_VERSION=version).stderr)
+
+    def crates(self, *args, **env):
+        """Install with a crabx that logs the arguments of its `install` runs and fails on `bad`."""
+        name = "crabx-x86_64-unknown-linux-gnu-v0.10.0"
+        script = f'[ "$1" = install ] || exit 0\necho "$*" >> {self.temp}/installs.log\n[ "$2" != bad ] || exit 1\n'
+        archive(self.served / f"{name}.tgz", {f"{name}/crabx": f"#!/bin/sh\n{script}".encode()})
+        result = self.install(*args, **env)
+        log = self.temp / "installs.log"
+        return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_crates_install_one_at_a_time_after_crabx(self):
+        result, runs = self.crates("a", "b@1.2.3", CRABX_INSTALL="c  d\te", CRABX_INSTALL_DIR=str(self.temp / "dir"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(runs, ["install a", "install b@1.2.3", "install c", "install d", "install e"])
+        # With none named, install.sh runs no `crabx install`, as before.
+        (self.temp / "installs.log").unlink()
+        self.assertEqual(self.crates()[1], [])
+
+    def test_the_first_failing_crate_is_named_and_stops_the_rest(self):
+        result, runs = self.crates("a", "bad", "c", CRABX_INSTALL_DIR=str(self.temp / "dir"))
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("crabx install bad failed", result.stderr)
+        self.assertEqual(runs, ["install a", "install bad"])
+        self.assertTrue((self.temp / "dir/crabx").exists())
+
+    def test_a_crate_is_never_an_option_or_a_command(self):
+        for spec in ("--build", "-x", "", "a b", "a;b", "$(id)", "a`id`", "a\nb", "1a", "a/b", "*"):
+            with self.subTest(spec=spec):
+                result = self.install("ok", spec)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("invalid crate", result.stderr)
+        self.assertFalse((self.temp / "curl.log").exists(), "an invalid crate reached the network")
+        # CRABX_INSTALL's words are never globbed into file names.
+        (self.temp / "x").write_text("")
+        result = self.install(CRABX_INSTALL="*", cwd=self.temp)
+        self.assertIn("invalid crate '*'", result.stderr)
+
+    def test_a_crabx_without_install_cannot_install_crates(self):
+        result, runs = self.crates("a", CRABX_VERSION="0.1.9")
+        self.assertIn("cannot install crates", result.stderr)
+        self.assertEqual(runs, [])
 
     def test_an_interruption_removes_every_staging_file_and_keeps_the_installed_binary(self):
         dir = self.temp / "dir"
