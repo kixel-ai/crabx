@@ -18,7 +18,7 @@ check:
 
 # Exercise cache execution, trust policy, the release's packages, and the pipeline without the network.
 test *args:
-    cargo test --locked {{ args }}
+    cargo nextest run --locked {{ args }}
     python3 -I test_release.py
     python3 -I pipeline/test_pipeline.py
 

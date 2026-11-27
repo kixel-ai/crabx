@@ -206,7 +206,7 @@ named `init` as `crabx init@VERSION`.
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
 `tests/e2e.sh` against the live crates.io and GitHub on every target, then offline from its cache, and runs
-`cargo test` on macOS and Windows and `install.ps1` on Windows. It packs the build's npm packages and, with
+`cargo nextest run` on macOS and Windows and `install.ps1` on Windows. It packs the build's npm packages and, with
 `tests/install.sh`, runs `crabx install` from them and a crate's launcher from a new shell on Linux, macOS, and
 Windows. It also runs both installers with a named crate, and both documented install lines from crabx.kixel.me.
 
