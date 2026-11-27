@@ -23,7 +23,6 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       publish: ${{ steps.plan.outputs.publish }}
-      builds: ${{ steps.plan.outputs.builds }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -31,16 +30,13 @@ jobs:
       - id: plan
         run: python3 release.py crate
 
-  # The pipeline's build of this commit on every target, so crates.io never holds a
-  # version whose binaries fail to build: a published version can't be rebuilt.
+  # The pipeline's dry run of this commit on every target, as consumers gate their own
+  # releases, so crates.io never holds a version whose binaries fail to build: a published
+  # version can't be rebuilt.
   check:
     needs: plan
     if: needs.plan.outputs.publish == 'true'
-    uses: ./.github/workflows/crabx-build.yml
-    with:
-      builds: ${{ needs.plan.outputs.builds }}
-      # The binaries job uploads the same artifact names in this run.
-      upload: false
+    uses: ./.github/workflows/crabx-dry-run.yml
 
   # Packaging runs build scripts, so it runs here, without the publishing job's OIDC
   # credentials, which every step of that job can request.
