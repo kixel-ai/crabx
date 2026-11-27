@@ -71,10 +71,10 @@ function spawnAndWait(file, args) {
 	// so this process only waits for crabx to exit. A supervisor's signals reach only this one.
 	const ignore = () => {};
 	const forward = (signal) => child.kill(signal);
-	// Windows delivers Ctrl-C to every process on the console, and has no signals to forward.
+	// Windows delivers Ctrl-C and Ctrl-Break to every process on the console, and has no signals to forward.
 	const handlers =
 		process.platform === "win32"
-			? { SIGINT: ignore }
+			? { SIGINT: ignore, SIGBREAK: ignore }
 			: { SIGINT: ignore, SIGQUIT: ignore, SIGTERM: forward, SIGHUP: forward };
 	for (const [signal, handler] of Object.entries(handlers)) process.on(signal, handler);
 	// The child can run before spawn returns, so catch supervisor signals before starting it.

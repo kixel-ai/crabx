@@ -1,0 +1,6 @@
+[profile.default]
+# Kill a test that stops making progress instead of letting a deadlock hold the run: the plain
+# `cargo test` harness waits forever. `terminate-after` counts periods, so a test is reported
+# SLOW at 30s and killed at a minute. The tests run in well under a second; `tests/execute.rs`
+# and `tests/launcher.rs` spawn child processes, which is where a hang would come from.
+slow-timeout = { period = "30s", terminate-after = 2 }
