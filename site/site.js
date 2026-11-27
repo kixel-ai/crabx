@@ -24,8 +24,9 @@ setup.hidden = false;
 setup.addEventListener("submit", async (event) => {
 	event.preventDefault();
 	const button = setup.querySelector("button");
-	const [owner, repo] = setup.elements.repo.value.trim().split("/");
-	if (!/^[\w-]+$/.test(owner ?? "") || !/^[\w.-]+$/.test(repo ?? "") || repo.endsWith(".git")) {
+	const parts = setup.elements.repo.value.trim().split("/");
+	const [owner, repo] = parts;
+	if (parts.length !== 2 || !/^[\w-]+$/.test(owner) || !/^[\w.-]+$/.test(repo) || repo.endsWith(".git")) {
 		status.textContent = "Enter the repository as owner/repo, such as kixel-ai/crabx.";
 		return;
 	}
@@ -36,6 +37,8 @@ setup.addEventListener("submit", async (event) => {
 		const get = async (url) => {
 			const response = await fetch(url, { headers: { Accept: "application/vnd.github+json" } });
 			if (response.status === 404) throw new Error("GitHub has no public repository by that name.");
+			// Only the tree call answers 409: a repository with no commits, which has no Cargo.toml either.
+			if (response.status === 409) return { truncated: false, tree: [] };
 			if (!response.ok) throw new Error(`GitHub's API answered ${response.status}; try again later.`);
 			return response.json();
 		};

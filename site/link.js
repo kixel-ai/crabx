@@ -19,8 +19,14 @@ const WORKFLOW_PATH = ".github/workflows/binaries.yml";
 // Why `crabx init` would refuse this repository, from its public metadata and recursive tree, or "" when it would not.
 function refusal(repo, tree) {
 	if (repo.private) return "That repository is private; crabx's pipeline needs a public one.";
+	if (repo.archived) return "That repository is archived; GitHub accepts no new files in it.";
 	if (tree.truncated) return "That repository is too large to check from here; run `crabx init` in a clone instead.";
 	const paths = tree.tree.map((entry) => entry.path);
+	// A tracked file, symlink, or submodule there leaves no directory to put the workflow in.
+	for (const dir of [".github", ".github/workflows"]) {
+		const entry = tree.tree.find((entry) => entry.path === dir);
+		if (entry && entry.type !== "tree") return `${dir} is not a directory in that repository, so it cannot hold a workflow.`;
+	}
 	if (!paths.some((path) => path === "Cargo.toml" || path.endsWith("/Cargo.toml"))) {
 		return "That repository tracks no Cargo.toml; crabx's pipeline builds Rust crates.";
 	}

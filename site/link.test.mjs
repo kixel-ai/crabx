@@ -29,11 +29,16 @@ test("the editor link round-trips the file and the branch", () => {
 });
 
 test("refuses what crabx init refuses", () => {
-	const tree = (...paths) => ({ truncated: false, tree: paths.map((path) => ({ path })) });
+	const tree = (...paths) => ({ truncated: false, tree: paths.map((path) => ({ path, type: "blob" })) });
 	assert.equal(link.refusal({ private: false }, tree("crates/a/Cargo.toml")), "");
 	assert.equal(link.refusal({ private: false }, tree("Cargo.toml", "src/main.rs")), "");
 	assert.match(link.refusal({ private: true }, tree("Cargo.toml")), /private/);
 	assert.match(link.refusal({ private: false }, tree("src/NotCargo.toml")), /no Cargo.toml/);
 	assert.match(link.refusal({ private: false }, tree("Cargo.toml", ".github/workflows/binaries.yml")), /already exists/);
 	assert.match(link.refusal({ private: false }, { truncated: true, tree: [] }), /too large/);
+	assert.match(link.refusal({ private: false, archived: true }, tree("Cargo.toml")), /archived/);
+	const blocked = { truncated: false, tree: [{ path: "Cargo.toml", type: "blob" }, { path: ".github", type: "commit" }] };
+	assert.match(link.refusal({ private: false }, blocked), /not a directory/);
+	const dirs = [{ path: "Cargo.toml", type: "blob" }, { path: ".github", type: "tree" }, { path: ".github/workflows", type: "tree" }];
+	assert.equal(link.refusal({ private: false }, { truncated: false, tree: dirs }), "");
 });

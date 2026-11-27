@@ -204,8 +204,9 @@ default branch from git, and never overwrites a different existing file. Run a c
 named `init` as `crabx init@VERSION`.
 
 crabx.kixel.me has the same setup without a terminal: enter `owner/repo` and it opens GitHub's new-file
-editor on the default branch with that workflow filled in. It checks the repository from the browser as
-`crabx init` does, and no server or credential is involved.
+editor on the default branch with that workflow filled in. It checks the repository from the browser much as
+`crabx init` does (it also refuses a very large repository, and one that already has the file even if it is
+correct), and no server or credential is involved.
 
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
