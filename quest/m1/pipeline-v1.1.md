@@ -16,7 +16,3 @@ Adding targets and the `crabx-dry-run.yml` workflow is backward compatible for c
 
 kixel-ai/token-max's move to the pipeline waits on this tag; its quest checks for it with
 `git ls-remote --tags https://github.com/kixel-ai/crabx pipeline-v1.1.0`.
-
-## Required
-
-- [Musl builds](/quest/m1/pipeline-musl.md) - the targets this release ships

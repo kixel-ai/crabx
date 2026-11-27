@@ -50,6 +50,7 @@
               toolchain
               quest-cli
               just
+              cargo-nextest
               jq
               git
               gh

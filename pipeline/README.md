@@ -1,7 +1,11 @@
 # Crate release pipeline
 
 The reusable workflow builds published binary crates for x86_64 and aarch64 GNU
-Linux, macOS, and Windows. Linux uses cargo-zigbuild with glibc 2.28. Each archive
+Linux, musl Linux, macOS, and Windows. Linux uses cargo-zigbuild: GNU builds link
+glibc 2.28, and musl builds link statically, so they run on any Linux, including
+Alpine and older glibc; a musl binary naming a program interpreter fails its build.
+Musl archives start with `pipeline-v1.1.0`; earlier pins build only the other six targets.
+On glibc hosts, crabx and binstall pick the GNU build first. Each archive
 contains every binary, under binstall's default directory and filename. Builds
 use all crate features so binaries with required features are included; mutually
 exclusive features fail the build rather than silently omit binaries.
@@ -99,12 +103,12 @@ public schedules after 60 inactive days; the next push or dispatch backfills
 versions published during that pause. A backfill exceeding GitHub's 256 matrix
 jobs fails explicitly.
 
-`.github/workflows/crabx-test.yml` builds the two-binary fixture on all six targets
+`.github/workflows/crabx-test.yml` builds the two-binary fixture on all eight targets
 with read-only permissions on PRs that change the pipeline, then runs the
 publishing job's artifact checks on them, still read-only. A manual dispatch also attests the archives
 without creating tags or releases, and bypasses crates.io discovery. Local tests
 exercise discovery, archiving, and publishing with recorded API and Cargo
-responses; the fixture workflow builds the real archives on all six targets.
+responses; the fixture workflow builds the real archives on all eight targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
 archive with `gh attestation verify <archive> -R kixel-ai/crabx --signer-workflow
 kixel-ai/crabx/.github/workflows/crabx.yml`. Then point `src/binaries.yml`,

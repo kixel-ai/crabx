@@ -83,7 +83,8 @@ class Plan(unittest.TestCase):
     def test_nightly_builds_every_target(self):
         with patch.dict(os.environ, {"GITHUB_SHA": "c" * 40}):
             builds = r.builds(r.checkout_version())["include"]
-        self.assertEqual({b["target"] for b in builds}, set(r.NPM_TARGETS))
+        self.assertEqual({b["target"] for b in builds}, {t for t, _ in r.targets()})
+        self.assertLess(set(r.NPM_TARGETS), {b["target"] for b in builds})
         self.assertTrue(all(b["sha"] == "c" * 40 and b["path"] == "." and b["os"] for b in builds))
         # The build workflow reads these fields from each entry, as it does from the pipeline's.
         reads = set(re.findall(r"\bmatrix\.([a-z_]+)", (HERE / ".github/workflows/crabx-build.yml").read_text()))
@@ -96,9 +97,11 @@ class Plan(unittest.TestCase):
                 r.nightly()
                 expected = r.builds(r.checkout_version())
             result = dict(line.split("=", 1) for line in out.read_text().splitlines())
-        # e2e.yml reads both outputs: the version names the archive each e2e leg downloads.
+        # e2e.yml reads these outputs: the version names the archive each e2e leg downloads.
         self.assertEqual(result["version"], r.checkout_version())
         self.assertEqual(json.loads(result["builds"]), expected)
+        # Every e2e leg runs a build that crabx runs prebuilt binaries on.
+        self.assertEqual({b["target"] for b in json.loads(result["e2e"])["include"]}, set(r.NPM_TARGETS))
 
     def test_crate_refuses_bare_tags_on_new_or_published_versions(self):
         # The pipeline would release under them, where npm and the installers never look.
