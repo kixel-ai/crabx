@@ -203,6 +203,11 @@ version gets attested binaries crabx runs. It takes no options, reads origin's
 default branch from git, and never overwrites a different existing file. Run a crate
 named `init` as `crabx init@VERSION`.
 
+crabx.kixel.me has the same setup without a terminal: enter `owner/repo` and it opens GitHub's new-file
+editor on the default branch with that workflow filled in. It checks the repository from the browser much as
+`crabx init` does (it also refuses a very large repository, and one that already has the file even if it is
+correct), and no server or credential is involved.
+
 Develop in the Nix dev shell with `just ci`, and `just run <crate> [args]`.
 `.github/workflows/e2e.yml` runs each night: it builds this commit's crabx as a release does and runs it with
 `tests/e2e.sh` against the live crates.io and GitHub on every target but musl (whose crabx compiles every
@@ -218,6 +223,6 @@ binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per 
 attestation first, then runs `tests/install.sh` on npm's version on every OS. Every step skips what is
 already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
-`.github/workflows/site.yml` serves `site/`, crabx's one-page site, and main's `install.sh` and
+`.github/workflows/site.yml` serves `site/`, crabx's one-page site, and main's `install.sh`, `src/binaries.yml` (the setup form's template), and
 `install.ps1` at [crabx.kixel.me](https://crabx.kixel.me) through GitHub Pages.
 crabx is GPL-3.0-only because it links binstalk.

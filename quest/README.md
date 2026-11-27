@@ -69,7 +69,7 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.
 - ✅ A pipeline workflow and `crabx init` now, the GitHub App
-  [later](/quest/m1/init-link.md). Rejected: the App in the first cut; no App.
+  later. Rejected: the App in the first cut; no App.
 - ✅ m2, the App in m3. Rejected: m1; m3. These were rust2's milestones; in this tree,
   first publish is m0 and the App m1.
   Superseded 2026-11-26 (maintainer, /quest-plan): instead of an App,

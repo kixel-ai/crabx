@@ -16,12 +16,13 @@ check:
     nixfmt --check flake.nix
     quest check
 
-# Exercise cache execution, trust policy, the release's packages, and the pipeline without the network.
+# Exercise cache execution, trust policy, the release's packages, the pipeline, and the site's setup form without the network.
 # Arguments go to `cargo nextest run`.
 test *args:
     cargo nextest run --locked {{ args }}
     python3 -I test_release.py
     python3 -I pipeline/test_pipeline.py
+    node --test site/link.test.mjs
 
 # Run what CI runs: lint, then test.
 ci: check test
