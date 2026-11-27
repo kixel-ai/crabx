@@ -26,7 +26,8 @@ Recommendations for the implementer:
 - Fill in `BRANCH` with the repository's default branch, read client-side from GitHub's
   public REST API. Unauthenticated calls are limited per visitor, which is fine at one
   call per use. Before linking, refuse with a clear message when the repository is missing,
-  private, or tracks no `Cargo.toml`, mirroring `crabx init`'s refusals. If the API fails,
+  private, or tracks no `Cargo.toml`, mirroring `crabx init`'s refusals. Also refuse when
+  `.github/workflows/binaries.yml` already exists, as `crabx init` does. If the API fails,
   say so instead of guessing `main`.
 - The link is `https://github.com/<owner>/<repo>/new/<branch>?filename=.github/workflows/binaries.yml&value=<encoded>`.
   Exercise it on the deployed site against a scratch repository and confirm GitHub keeps
