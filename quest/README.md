@@ -69,9 +69,12 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   `@kixel/crabx`, as above.
   Rejected: xcrate, rusx, carx.
 - ✅ A pipeline workflow and `crabx init` now, the GitHub App
-  [later](/quest/m1/app.md). Rejected: the App in the first cut; no App.
+  [later](/quest/m1/init-link.md). Rejected: the App in the first cut; no App.
 - ✅ m2, the App in m3. Rejected: m1; m3. These were rust2's milestones; in this tree,
   first publish is m0 and the App m1.
+  Superseded 2026-11-26 (maintainer, /quest-plan): instead of an App,
+  crabx.kixel.me links to GitHub's editor with the caller workflow prefilled. This avoids
+  holding a key with workflow write on every adopter's repository.
 
 Decided by the maintainer on 2026-11-22, in
 [kixel-ai/rust2#948](https://github.com/kixel-ai/rust2/pull/948#issuecomment-7074616370):
