@@ -20,6 +20,7 @@ on:
       - install.sh
       - npm/**
       - src/launcher.rs
+      - tests/ctrl_c.rs
   workflow_dispatch:
 
 permissions:

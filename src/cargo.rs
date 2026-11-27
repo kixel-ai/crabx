@@ -386,6 +386,7 @@ mod tests {
 		// Cargo would read work/.cargo/config.toml beside this home, whatever name reaches it.
 		fs::create_dir(work.join(".cargo")).unwrap();
 		fs::write(work.join(".cargo/config.toml"), "").unwrap();
+		#[cfg_attr(windows, allow(unused_mut))] // Only Unix adds a symlinked alias.
 		let mut homes = vec![work.join("cargo-home")];
 		#[cfg(unix)]
 		{
