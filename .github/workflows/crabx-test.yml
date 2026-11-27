@@ -1,11 +1,8 @@
 name: Crabx fixture
 
+# Builds and attests the two-binary fixture on every target through the real pipeline, without
+# tags or releases. Dispatch it on a branch when a pipeline change needs the real targets.
 on:
-  pull_request:
-    paths:
-      - pipeline/**
-      - .github/workflows/crabx*.yml
-      - .github/actions/crabx-archives/**
   workflow_dispatch:
 
 permissions:
@@ -17,41 +14,4 @@ jobs:
       contents: write
       id-token: write
       attestations: write
-    if: github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/crabx.yml
-  plan:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    outputs:
-      builds: ${{ steps.plan.outputs.builds }}
-      releases: ${{ steps.plan.outputs.releases }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - id: plan
-        run: python3 pipeline/pipeline.py fixture
-  pr:
-    needs: plan
-    uses: ./.github/workflows/crabx-build.yml
-    with:
-      builds: ${{ needs.plan.outputs.builds }}
-  # The publish job's artifact handoff, read-only, so a permission, upload, download,
-  # or digest mismatch fails here instead of in a release.
-  archives:
-    needs: [plan, pr]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          path: .crabx
-          persist-credentials: false
-      - uses: ./.crabx/.github/actions/crabx-archives
-        with:
-          item: ${{ toJSON(fromJSON(needs.plan.outputs.releases).include[0]) }}
-      - run: ls -l archives
-  # The dry run consumers gate their releases on, planned from crabx's own checkout.
-  dry-run:
-    if: github.event_name == 'pull_request'
-    uses: ./.github/workflows/crabx-dry-run.yml

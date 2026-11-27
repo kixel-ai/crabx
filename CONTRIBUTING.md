@@ -18,7 +18,8 @@ Have at least these sections:
 
 # Landing
 
-A PR lands once CI's `check` job and its local `quest review` rounds pass; queue the reviewed head with `quest merge <pr>`.
+CI runs no checks on pull requests; `check` reruns `just ci` after each push to `main`.
+A PR lands once its local `quest review` rounds pass; queue the reviewed head with `quest merge <pr>`.
 The admin bypass of `main`'s rulesets is for emergencies.
 
 # Imported code

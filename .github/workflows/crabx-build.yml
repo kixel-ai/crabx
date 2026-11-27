@@ -1,6 +1,6 @@
 name: Crabx build
 
-# Internal read-only worker, also used by PR fixtures and crabx-dry-run.yml without
+# Internal read-only worker, also used by crabx-dry-run.yml and e2e.yml without
 # publishing authority.
 on:
   workflow_call:
