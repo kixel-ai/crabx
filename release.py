@@ -118,7 +118,7 @@ def crate():
     clash = bare_tags() & (set(versions) | {version})
     if clash:
         raise SystemExit(f"bare tags {', '.join(f'v{v}' for v in sorted(clash))} name crabx versions, so the pipeline could release crabx under them; delete them")
-    # Fail before publishing if npm would lack a package for one of the targets the pipeline builds.
+    # Fail before publishing if the pipeline would not build one of the npm packages' targets.
     targets()
     if version in versions:
         output(publish="false")
@@ -287,7 +287,7 @@ def pack(version, archives, out):
 
 
 def download(version, directory):
-    """Download and verify the release archive of crabx at version for every target."""
+    """Download and verify the release archive of crabx at version for every npm target."""
     subprocess.run(
         ["gh", "release", "download", f"crabx-v{version}", "--repo", REPO, "--dir", str(directory), "--pattern", f"crabx-*-v{version}.tgz"],
         check=True,

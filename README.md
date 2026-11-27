@@ -214,7 +214,7 @@ Windows. It also runs both installers with a named crate, and both documented in
 A release is a PR that bumps `version` in `Cargo.toml`. Once it lands, `.github/workflows/release.yml`
 builds the commit on every target, publishes it to crates.io, runs [the pipeline](pipeline/README.md)
 to attach attested binaries to the `crabx-vX.Y.Z` release, and publishes the newest stable version's
-binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per target, each verified against its
+binaries to npm as `@kixel/crabx` and one `@kixel/crabx-<platform>` package per glibc, macOS, and Windows target, each verified against its
 attestation first, then runs `tests/install.sh` on npm's version on every OS. Every step skips what is
 already published, so a rerun finishes a failed release.
 crates.io and npm trust only that workflow, in its `crates-io` and `npm` environments.
