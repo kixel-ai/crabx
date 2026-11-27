@@ -3,7 +3,8 @@ name: End to end
 # The live checks the merge gate can't run: crabx's release build of this commit against the
 # real crates.io, GitHub, and Sigstore on every target, its tests and Windows installer
 # off Linux, and the site and installers Pages serves at crabx.kixel.me. Nightly, outside the
-# gate; dispatch it on a branch when a change to this check needs proving first.
+# gate; dispatch it on a branch when a change to this check needs proving first. The deployed
+# installer and site checks always test what Pages serves from main.
 on:
   schedule:
     # After release.yml's nightly run, so a new release is checked the same morning.

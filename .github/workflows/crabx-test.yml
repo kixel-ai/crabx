@@ -1,7 +1,8 @@
 name: Crabx fixture
 
 # Builds and attests the two-binary fixture on every target through the real pipeline, without
-# tags or releases. Dispatch it on a branch when a pipeline change needs the real targets.
+# tags or releases, and runs the dry run consumers gate their releases on. Dispatch it on a
+# branch when a pipeline change needs the real targets.
 on:
   workflow_dispatch:
 
@@ -15,3 +16,5 @@ jobs:
       id-token: write
       attestations: write
     uses: ./.github/workflows/crabx.yml
+  dry-run:
+    uses: ./.github/workflows/crabx-dry-run.yml

@@ -101,7 +101,8 @@ jobs fails explicitly.
 
 `.github/workflows/crabx-test.yml`, dispatched manually, builds the two-binary fixture
 on all six targets, runs the publishing job's artifact checks on them, and attests the
-archives without creating tags or releases, bypassing crates.io discovery. Local tests
+archives without creating tags or releases, bypassing crates.io discovery. It also runs
+`crabx-dry-run.yml` on crabx's own checkout. Local tests
 exercise discovery, archiving, and publishing with recorded API and Cargo
 responses; the fixture workflow builds the real archives on all six targets.
 Before tagging a pipeline release, dispatch it on the commit to tag and check each
