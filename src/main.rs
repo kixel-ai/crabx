@@ -115,9 +115,38 @@ fn execute(path: PathBuf, args: Vec<std::ffi::OsString>, admitted: Option<std::f
 	}
 	#[cfg(windows)]
 	{
-		let mut child = command.spawn().with_context(|| format!("execute {}", path.display()));
+		// Windows sends Ctrl-C to every process on the console; crabx keeps waiting so the prompt
+		// returns only once the crate has handled it and exited.
+		console::wait_out_ctrl_c().context("handle Ctrl-C while the crate runs")?;
+		let child = command.spawn().with_context(|| format!("execute {}", path.display()));
 		drop(admitted);
 		let status = child?.wait().with_context(|| format!("wait for {}", path.display()))?;
 		std::process::exit(status.code().unwrap_or(1));
+	}
+}
+
+#[cfg(windows)]
+mod console {
+	type Handler = unsafe extern "system" fn(u32) -> i32;
+
+	#[link(name = "kernel32")]
+	unsafe extern "system" {
+		fn SetConsoleCtrlHandler(handler: Option<Handler>, add: i32) -> i32;
+	}
+
+	/// Handle Ctrl-C and Ctrl-Break, the events the crate also receives, by ignoring them.
+	unsafe extern "system" fn ignore(event: u32) -> i32 {
+		// CTRL_C_EVENT and CTRL_BREAK_EVENT; closing the console or logging off still ends crabx.
+		(event <= 1) as i32
+	}
+
+	/// Keep crabx alive through Ctrl-C. Not `SetConsoleCtrlHandler(NULL, TRUE)`: children
+	/// inherit that, so the crate would ignore Ctrl-C too.
+	pub fn wait_out_ctrl_c() -> std::io::Result<()> {
+		// SAFETY: `ignore` is a valid handler for the life of the process.
+		match unsafe { SetConsoleCtrlHandler(Some(ignore), 1) } {
+			0 => Err(std::io::Error::last_os_error()),
+			_ => Ok(()),
+		}
 	}
 }
