@@ -51,3 +51,7 @@ jobs:
         with:
           item: ${{ toJSON(fromJSON(needs.plan.outputs.releases).include[0]) }}
       - run: ls -l archives
+  # The dry run consumers gate their releases on, planned from crabx's own checkout.
+  dry-run:
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/crabx-dry-run.yml

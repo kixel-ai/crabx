@@ -1,0 +1,58 @@
+name: Crabx dry run
+
+# Builds the caller's binary crates at its commit and manifest versions on every target, as
+# the pipeline will once they are on crates.io, so a release workflow can refuse to publish a
+# version whose binaries fail to build. It uploads, attests, tags, and releases nothing, so it
+# needs only read access and runs from any branch or event.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      builds: ${{ steps.plan.outputs.builds }}
+    steps:
+      - name: Require a public repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" != false ]]; then
+            echo '::error::The crabx pipeline supports public repositories only.'
+            exit 1
+          fi
+      # Read new job identity fields through JSON until actionlint knows their types.
+      - id: identity
+        env:
+          JOB: ${{ toJSON(job) }}
+        shell: bash
+        run: |
+          for field in workflow_repository workflow_sha; do
+            value=$(jq -er --arg field "$field" '.[$field] | select(type == "string" and length > 0)' <<< "$JOB")
+            echo "$field=$value" >> "$GITHUB_OUTPUT"
+          done
+      # Cargo reads workspace members in submodules, as the build's checkout fetches them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.identity.outputs.workflow_repository }}
+          ref: ${{ steps.identity.outputs.workflow_sha }}
+          path: .crabx
+          persist-credentials: false
+      - id: plan
+        run: python3 .crabx/pipeline/pipeline.py dry-run
+
+  build:
+    needs: plan
+    uses: ./.github/workflows/crabx-build.yml
+    with:
+      builds: ${{ needs.plan.outputs.builds }}
+      # The pipeline's real build may share this run and upload the same artifact names.
+      upload: false
