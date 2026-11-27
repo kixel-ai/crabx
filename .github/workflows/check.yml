@@ -1,8 +1,7 @@
 name: Check
 
-# The check every pull request needs before it lands; main's ruleset requires its `check` job.
+# `just ci` after each push to main, coalesced; pull requests run it locally before pushing.
 on:
-  pull_request:
   push:
     branches: [main]
   workflow_dispatch:
@@ -25,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/nix
       # Dependencies are nearly all of clippy's and the tests' compile time. Only main
-      # saves, so a pull request reads the cache and can't write what later runs build on.
+      # saves, so a manual run on another branch can't write what later runs build on.
       # The manifest is in the key because a feature or profile edit rebuilds dependencies
       # without touching the lockfile.
       - id: cargo
