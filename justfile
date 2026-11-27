@@ -17,6 +17,7 @@ check:
     quest check
 
 # Exercise cache execution, trust policy, the release's packages, and the pipeline without the network.
+# Arguments go to `cargo nextest run`.
 test *args:
     cargo nextest run --locked {{ args }}
     python3 -I test_release.py
