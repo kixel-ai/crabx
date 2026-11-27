@@ -9,6 +9,7 @@ on:
       - site/**
       - install.sh
       - install.ps1
+      - src/binaries.yml
       - assets/logo/logo-on-dark.svg
       - .github/workflows/site.yml
   workflow_dispatch:
@@ -40,6 +41,8 @@ jobs:
           # -L resolves site/logo.svg, a link to assets/logo's lockup.
           cp -rL site _site
           cp install.sh install.ps1 _site/
+          # The caller crabx init writes, which the site's setup form fills in, so they cannot drift.
+          cp src/binaries.yml _site/
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site

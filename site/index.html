@@ -4,11 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <!-- GitHub Pages sends no custom headers, so the policy lives here: the page loads nothing from another origin. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self'; style-src 'self'; script-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'; connect-src 'self' https://api.github.com">
 <title>crabx: stop compiling Rust CLIs from source</title>
 <meta name="description" content="crabx runs a crates.io CLI from prebuilt releases. Works with any repo that supports cargo-binstall.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
+<script src="link.js" defer></script>
 <script src="site.js" defer></script>
 <meta name="color-scheme" content="dark">
 <link rel="preload" href="fonts/SpaceGrotesk.woff2" as="font" type="font/woff2" crossorigin>
@@ -136,6 +137,15 @@
     <pre><code><span class="tk-prompt">$ </span><span class="sel"><span class="tk-bin">crabx</span> init</span>
 <span class="d">wrote /home/you/mycrate/.github/workflows/binaries.yml; commit it and push it to main</span></code></pre>
   </div>
+  <!-- Hidden until site.js runs: the form needs it. -->
+  <form class="setup" hidden>
+    <label for="repo">Or open GitHub's editor with that workflow filled in:</label>
+    <div class="row">
+      <input id="repo" name="repo" placeholder="owner/repo" autocomplete="off" spellcheck="false" required>
+      <button type="submit">Set up</button>
+    </div>
+    <p class="status" role="status"></p>
+  </form>
   <p class="fine">The repository must be public and be the one your crate's <code>repository</code>
   field names. Build jobs get read-only tokens; only the publishing job, which never runs your
   crate's code, attests archives and writes releases. See
