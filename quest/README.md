@@ -52,7 +52,7 @@ Decided with the maintainer on 2026-11-12, in /quest-plan:
   native deps often fail to build); both. On musl Linux, crabx fails loudly and points
   at `--build`.
   Superseded 2026-11-25 (maintainer, /quest-plan in kixel-ai/token-max): the pipeline
-  builds static musl archives beside the gnu ones ([musl builds](/quest/m1/pipeline-musl.md));
+  builds static musl archives beside the gnu ones;
   crabx still refuses prebuilt binaries on musl Linux.
 - ✅ Decided 2026-11-25 (maintainer, site review): a release with no usable prebuilt binary
   for the platform, including every release on musl Linux, compiles with `cargo install
